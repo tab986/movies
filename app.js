@@ -57,6 +57,10 @@ app.get("/", (req, res) => {
   res.send({ jason: "working" });
 });
 
+const userRoutes = require("./routes/userRoutes");
+
+app.use("/api/v1/users", userRoutes);
+
 app.use("/api/v1/dashboard", dashboardRoutes);
 app.use("/api/v1/orders", orderRoutes);
 app.use("/api/v1/products", productsRouter);

@@ -1,3 +1,4 @@
+// controllers/orderControllers.js
 const axios = require("axios");
 const Orders = require("../models/ordersModel");
 const User = require("../models/userModel");
@@ -7,9 +8,23 @@ const appError = require("../utils/appError");
 const catchAsyncErrors = require("../utils/catchAsyncErrors");
 const factory = require("../utils/handlerFactory");
 
+/**
+ * Kinguin ESA config
+ * - Use ESA base, not the generic gateway root
+ * - Auth header is X-Api-Key
+ * - Orders endpoint is /v2/order (singular) for ESA
+ */
 const KINGUIN_API_BASE =
   process.env.KINGUIN_API_BASE || "https://gateway.kinguin.net/esa/api";
 const KINGUIN_API_KEY = process.env.KINGUIN_API_KEY;
+
+const ESA_BALANCE_URL = `${KINGUIN_API_BASE}/v1/balance`;
+const ESA_ORDER_URL = `${KINGUIN_API_BASE}/v2/order`;
+
+const ESA_HEADERS = {
+  "Content-Type": "application/json",
+  "X-Api-Key": KINGUIN_API_KEY || "", // filled at runtime; validated below
+};
 
 // --- helpers ---
 function calcTotals(items = []) {
@@ -18,25 +33,61 @@ function calcTotals(items = []) {
     0
   );
   const totalPriceLocal = items.reduce(
-    (s, i) => s + Number(i.price || 0) * Number(i.quantity ?? i.qty ?? 0),
+    (s, i) =>
+      s + Number(i.price || 0) * Math.max(0, Number(i.quantity ?? i.qty ?? 0)),
     0
   );
   return { totalItems, totalPriceLocal: Number(totalPriceLocal.toFixed(2)) };
 }
+
 async function kinguinGetBalance() {
-  const r = await axios.get(`${KINGUIN_API_BASE}/v1/balance`, {
-    headers: { "X-Api-Key": KINGUIN_API_KEY },
-  });
-  return r.data; // { balance }
+  if (!KINGUIN_API_KEY) throw new appError("KINGUIN_API_KEY missing", 500);
+
+  try {
+    const r = await axios.get(ESA_BALANCE_URL, {
+      headers: ESA_HEADERS,
+      timeout: 20000,
+    });
+    return r.data; // { balance }
+  } catch (err) {
+    const status = err.response?.status;
+    const data = err.response?.data;
+    console.error("Kinguin balance error:", status, data);
+    throw new appError(
+      `Kinguin balance ${status || ""} – ${
+        data?.detail || data?.message || JSON.stringify(data) || err.message
+      }`,
+      status || 400
+    );
+  }
 }
+
+/**
+ * ESA order call
+ * Docs show minimal payload:
+ *   { products: [{ productId: "<string>", qty: <number>, price?: <number> }], orderExternalId?: "<string>" }
+ * We keep offerId if you provide it (harmless); ESA ignores unknown fields.
+ */
 async function kinguinPlaceOrderV2(payload) {
-  const r = await axios.post(`${KINGUIN_API_BASE}/v2/order`, payload, {
-    headers: {
-      "X-Api-Key": KINGUIN_API_KEY,
-      "Content-Type": "application/json",
-    },
-  });
-  return r.data; // Kinguin order object
+  if (!KINGUIN_API_KEY) throw new appError("KINGUIN_API_KEY missing", 500);
+
+  try {
+    const res = await axios.post(ESA_ORDER_URL, payload, {
+      headers: ESA_HEADERS,
+      timeout: 20000,
+    });
+    return res.data;
+  } catch (err) {
+    const status = err.response?.status;
+    const data = err.response?.data;
+    console.error("Kinguin order error:", status, data);
+    throw new appError(
+      `Kinguin ${status || ""} – ${
+        data?.detail || data?.message || JSON.stringify(data) || err.message
+      }`,
+      status || 400
+    );
+  }
 }
 
 exports.createOrder = catchAsyncErrors(async (req, res, next) => {
@@ -46,9 +97,12 @@ exports.createOrder = catchAsyncErrors(async (req, res, next) => {
     orderExternalId,
     mode = "own",
   } = req.body || {};
+
   if (!items.length) return next(new appError("items are required", 400));
   if (!KINGUIN_API_KEY)
     return next(new appError("Kinguin API key missing", 500));
+  if (!/^https?:\/\//.test(KINGUIN_API_BASE))
+    return next(new appError("Kinguin base URL invalid", 500));
   if (!orderExternalId)
     return next(new appError("orderExternalId is required", 400));
 
@@ -93,6 +147,7 @@ exports.createOrder = catchAsyncErrors(async (req, res, next) => {
   if (!orderDoc) {
     orderDoc = await Orders.create({
       user: userDoc._id,
+
       // shipping snapshot
       fullName: user.fullName || userDoc.fullName,
       governorate: user.governorate || userDoc.governorate,
@@ -106,30 +161,36 @@ exports.createOrder = catchAsyncErrors(async (req, res, next) => {
       totalItems,
       totalPriceLocal,
 
-      // optional: stash cart as products until Kinguin reply arrives
+      // stash cart
       products: items.map((i) => ({
-        productId: String(i.productId),
+        productId: String(i.productId), // keep as string for ESA
         qty: Number(i.qty ?? i.quantity ?? 1),
-        price: Number(i.price),
+        price: i.price != null ? Number(i.price) : undefined,
         name: i.name,
         offerId: i.offerId,
         keyType: i.keyType || "text",
-        totalPrice: Number(
-          (Number(i.price) * Number(i.qty ?? i.quantity ?? 1)).toFixed(2)
-        ),
+        totalPrice:
+          i.price != null
+            ? Number(
+                (Number(i.price) * Number(i.qty ?? i.quantity ?? 1)).toFixed(2)
+              )
+            : undefined,
       })),
     });
   }
 
-  // 4) Build Kinguin payload
+  // 4) Build Kinguin ESA payload (string productId; price optional)
   const kinguinPayload = {
-    products: items.map((i) => ({
-      productId: Number(i.productId),
-      qty: Number(i.qty ?? i.quantity ?? 1),
-      price: Number(i.price),
-      offerId: i.offerId,
-      keyType: i.keyType || "text",
-    })),
+    products: items.map((i) => {
+      const p = {
+        productId: String(i.productId),
+        qty: Number(i.qty ?? i.quantity ?? 1),
+      };
+      if (i.price != null) p.price = Number(i.price);
+      // keep offerId if you have it; ESA ignores unknowns
+      if (i.offerId) p.offerId = i.offerId;
+      return p;
+    }),
     orderExternalId,
   };
 
@@ -138,10 +199,10 @@ exports.createOrder = catchAsyncErrors(async (req, res, next) => {
   if (mode === "own") {
     const { balance } = await kinguinGetBalance();
     const needed = kinguinPayload.products.reduce(
-      (s, p) => s + p.price * p.qty,
+      (s, p) => s + Number(p.price || 0) * Number(p.qty || 0),
       0
     );
-    if (Number(balance) < Number(needed)) {
+    if (Number.isFinite(needed) && Number(balance) < Number(needed)) {
       return res.status(409).json({
         status: "fail",
         error: "LOW_BALANCE",
@@ -152,6 +213,7 @@ exports.createOrder = catchAsyncErrors(async (req, res, next) => {
       });
     }
   }
+
   kinguinOrderResponse = await kinguinPlaceOrderV2(kinguinPayload);
 
   // 6) Merge Kinguin response into the order
@@ -201,6 +263,7 @@ exports.createOrder = catchAsyncErrors(async (req, res, next) => {
 
   res.status(201).json({ status: "success", data: { order: orderDoc } });
 });
+
 // this shit for admin it needs testing
 // exports.createOrder = catchAsyncErrors(async (req, res, next) => {
 //   const {
