@@ -91,173 +91,173 @@ async function kinguinPlaceOrderV2(payload) {
 }
 
 exports.createOrder = catchAsyncErrors(async (req, res, next) => {
-  const {
-    user = {},
-    items = [],
-    orderExternalId,
-    mode = "own",
-  } = req.body || {};
+  // const {
+  //   user = {},
+  //   items = [],
+  //   orderExternalId,
+  //   mode = "own",
+  // } = req.body || {};
 
-  if (!items.length) return next(new appError("items are required", 400));
-  if (!KINGUIN_API_KEY)
-    return next(new appError("Kinguin API key missing", 500));
-  if (!/^https?:\/\//.test(KINGUIN_API_BASE))
-    return next(new appError("Kinguin base URL invalid", 500));
-  if (!orderExternalId)
-    return next(new appError("orderExternalId is required", 400));
+  // if (!items.length) return next(new appError("items are required", 400));
+  // if (!KINGUIN_API_KEY)
+  //   return next(new appError("Kinguin API key missing", 500));
+  // if (!/^https?:\/\//.test(KINGUIN_API_BASE))
+  //   return next(new appError("Kinguin base URL invalid", 500));
+  // if (!orderExternalId)
+  //   return next(new appError("orderExternalId is required", 400));
 
-  // 1) Upsert user (by phone or email)
-  const lookup = {};
-  if (user.phoneNumber) lookup.phoneNumber = user.phoneNumber;
-  if (user.email) lookup.email = user.email;
+  // // 1) Upsert user (by phone or email)
+  // const lookup = {};
+  // if (user.phoneNumber) lookup.phoneNumber = user.phoneNumber;
+  // if (user.email) lookup.email = user.email;
 
-  let userDoc = await User.findOne(lookup);
-  if (!userDoc) {
-    userDoc = await User.create({
-      fullName: user.fullName,
-      email: user.email,
-      phoneNumber: user.phoneNumber,
-      governorate: user.governorate,
-      city: user.city,
-      address: user.address,
-      notes: user.notes,
-    });
-  } else {
-    if (user.fullName) userDoc.fullName = user.fullName;
-    if (user.email) userDoc.email = user.email;
-    if (user.phoneNumber) userDoc.phoneNumber = user.phoneNumber;
-    if (user.governorate) userDoc.governorate = user.governorate;
-    if (user.city) userDoc.city = user.city;
-    if (user.address) userDoc.address = user.address;
-    if (user.notes) userDoc.notes = user.notes;
-    await userDoc.save();
-  }
+  // let userDoc = await User.findOne(lookup);
+  // if (!userDoc) {
+  //   userDoc = await User.create({
+  //     fullName: user.fullName,
+  //     email: user.email,
+  //     phoneNumber: user.phoneNumber,
+  //     governorate: user.governorate,
+  //     city: user.city,
+  //     address: user.address,
+  //     notes: user.notes,
+  //   });
+  // } else {
+  //   if (user.fullName) userDoc.fullName = user.fullName;
+  //   if (user.email) userDoc.email = user.email;
+  //   if (user.phoneNumber) userDoc.phoneNumber = user.phoneNumber;
+  //   if (user.governorate) userDoc.governorate = user.governorate;
+  //   if (user.city) userDoc.city = user.city;
+  //   if (user.address) userDoc.address = user.address;
+  //   if (user.notes) userDoc.notes = user.notes;
+  //   await userDoc.save();
+  // }
 
-  // 2) Idempotency: if an order for this user+externalId already exists, return it
-  let existing = await Orders.findOne({ user: userDoc._id, orderExternalId });
-  if (existing && existing.orderId) {
-    return res
-      .status(200)
-      .json({ status: "success", data: { order: existing } });
-  }
+  // // 2) Idempotency: if an order for this user+externalId already exists, return it
+  // let existing = await Orders.findOne({ user: userDoc._id, orderExternalId });
+  // if (existing && existing.orderId) {
+  //   return res
+  //     .status(200)
+  //     .json({ status: "success", data: { order: existing } });
+  // }
 
-  // 3) Create (or reuse) local order shell in pending
-  const { totalItems, totalPriceLocal } = calcTotals(items);
-  let orderDoc = existing;
-  if (!orderDoc) {
-    orderDoc = await Orders.create({
-      user: userDoc._id,
+  // // 3) Create (or reuse) local order shell in pending
+  // const { totalItems, totalPriceLocal } = calcTotals(items);
+  // let orderDoc = existing;
+  // if (!orderDoc) {
+  //   orderDoc = await Orders.create({
+  //     user: userDoc._id,
 
-      // shipping snapshot
-      fullName: user.fullName || userDoc.fullName,
-      governorate: user.governorate || userDoc.governorate,
-      city: user.city || userDoc.city,
-      addressLine: user.address || userDoc.address,
-      phoneNumber: user.phoneNumber || userDoc.phoneNumber,
-      notes: user.notes || userDoc.notes,
+  //     // shipping snapshot
+  //     fullName: user.fullName || userDoc.fullName,
+  //     governorate: user.governorate || userDoc.governorate,
+  //     city: user.city || userDoc.city,
+  //     addressLine: user.address || userDoc.address,
+  //     phoneNumber: user.phoneNumber || userDoc.phoneNumber,
+  //     notes: user.notes || userDoc.notes,
 
-      orderExternalId,
-      localStatus: "pending",
-      totalItems,
-      totalPriceLocal,
+  //     orderExternalId,
+  //     localStatus: "pending",
+  //     totalItems,
+  //     totalPriceLocal,
 
-      // stash cart
-      products: items.map((i) => ({
-        productId: String(i.productId), // keep as string for ESA
-        qty: Number(i.qty ?? i.quantity ?? 1),
-        price: i.price != null ? Number(i.price) : undefined,
-        name: i.name,
-        offerId: i.offerId,
-        keyType: i.keyType || "text",
-        totalPrice:
-          i.price != null
-            ? Number(
-                (Number(i.price) * Number(i.qty ?? i.quantity ?? 1)).toFixed(2)
-              )
-            : undefined,
-      })),
-    });
-  }
+  //     // stash cart
+  //     products: items.map((i) => ({
+  //       productId: String(i.productId), // keep as string for ESA
+  //       qty: Number(i.qty ?? i.quantity ?? 1),
+  //       price: i.price != null ? Number(i.price) : undefined,
+  //       name: i.name,
+  //       offerId: i.offerId,
+  //       keyType: i.keyType || "text",
+  //       totalPrice:
+  //         i.price != null
+  //           ? Number(
+  //               (Number(i.price) * Number(i.qty ?? i.quantity ?? 1)).toFixed(2)
+  //             )
+  //           : undefined,
+  //     })),
+  //   });
+  // }
 
-  // 4) Build Kinguin ESA payload (string productId; price optional)
-  const kinguinPayload = {
-    products: items.map((i) => {
-      const p = {
-        productId: String(i.productId),
-        qty: Number(i.qty ?? i.quantity ?? 1),
-      };
-      if (i.price != null) p.price = Number(i.price);
-      // keep offerId if you have it; ESA ignores unknowns
-      if (i.offerId) p.offerId = i.offerId;
-      return p;
-    }),
-    orderExternalId,
-  };
+  // // 4) Build Kinguin ESA payload (string productId; price optional)
+  // const kinguinPayload = {
+  //   products: items.map((i) => {
+  //     const p = {
+  //       productId: String(i.productId),
+  //       qty: Number(i.qty ?? i.quantity ?? 1),
+  //     };
+  //     if (i.price != null) p.price = Number(i.price);
+  //     // keep offerId if you have it; ESA ignores unknowns
+  //     if (i.offerId) p.offerId = i.offerId;
+  //     return p;
+  //   }),
+  //   orderExternalId,
+  // };
 
-  // 5) Place order (only check balance if mode === "own")
-  let kinguinOrderResponse;
-  if (mode === "own") {
-    const { balance } = await kinguinGetBalance();
-    const needed = kinguinPayload.products.reduce(
-      (s, p) => s + Number(p.price || 0) * Number(p.qty || 0),
-      0
-    );
-    if (Number.isFinite(needed) && Number(balance) < Number(needed)) {
-      return res.status(409).json({
-        status: "fail",
-        error: "LOW_BALANCE",
-        message: "Insufficient Kinguin balance. Top up and retry.",
-        balance,
-        needed,
-        localOrderId: orderDoc._id,
-      });
-    }
-  }
+  // // 5) Place order (only check balance if mode === "own")
+  // let kinguinOrderResponse;
+  // if (mode === "own") {
+  //   const { balance } = await kinguinGetBalance();
+  //   const needed = kinguinPayload.products.reduce(
+  //     (s, p) => s + Number(p.price || 0) * Number(p.qty || 0),
+  //     0
+  //   );
+  //   if (Number.isFinite(needed) && Number(balance) < Number(needed)) {
+  //     return res.status(409).json({
+  //       status: "fail",
+  //       error: "LOW_BALANCE",
+  //       message: "Insufficient Kinguin balance. Top up and retry.",
+  //       balance,
+  //       needed,
+  //       localOrderId: orderDoc._id,
+  //     });
+  //   }
+  // }
 
-  kinguinOrderResponse = await kinguinPlaceOrderV2(kinguinPayload);
+  // kinguinOrderResponse = await kinguinPlaceOrderV2(kinguinPayload);
 
-  // 6) Merge Kinguin response into the order
-  orderDoc = await Orders.findByIdAndUpdate(
-    orderDoc._id,
-    {
-      $set: {
-        totalPrice: kinguinOrderResponse.totalPrice,
-        requestTotalPrice: kinguinOrderResponse.requestTotalPrice,
-        paymentPrice: kinguinOrderResponse.paymentPrice,
-        status: kinguinOrderResponse.status,
-        userEmail: kinguinOrderResponse.userEmail,
-        storeId: kinguinOrderResponse.storeId,
-        kinguinCreatedAt: kinguinOrderResponse.createdAt,
-        orderId: kinguinOrderResponse.orderId,
-        kinguinOrderId: kinguinOrderResponse.kinguinOrderId,
-        isPreorder: kinguinOrderResponse.isPreorder,
-        totalQty: kinguinOrderResponse.totalQty,
-        preorderReleaseDate: kinguinOrderResponse.preorderReleaseDate,
-        products: (kinguinOrderResponse.products || []).map((p) => ({
-          kinguinId: p.kinguinId,
-          offerId: p.offerId,
-          productId: p.productId,
-          qty: p.qty,
-          name: p.name,
-          price: p.price,
-          totalPrice: p.totalPrice,
-          requestPrice: p.requestPrice,
-          isPreorder: p.isPreorder,
-          releaseDate: p.releaseDate,
-          keyType: p.keyType,
-          keys: p.keys,
-        })),
-        kinguinRequest: kinguinPayload,
-        kinguinResponse: kinguinOrderResponse,
-      },
-    },
-    { new: true }
-  );
+  // // 6) Merge Kinguin response into the order
+  // orderDoc = await Orders.findByIdAndUpdate(
+  //   orderDoc._id,
+  //   {
+  //     $set: {
+  //       totalPrice: kinguinOrderResponse.totalPrice,
+  //       requestTotalPrice: kinguinOrderResponse.requestTotalPrice,
+  //       paymentPrice: kinguinOrderResponse.paymentPrice,
+  //       status: kinguinOrderResponse.status,
+  //       userEmail: kinguinOrderResponse.userEmail,
+  //       storeId: kinguinOrderResponse.storeId,
+  //       kinguinCreatedAt: kinguinOrderResponse.createdAt,
+  //       orderId: kinguinOrderResponse.orderId,
+  //       kinguinOrderId: kinguinOrderResponse.kinguinOrderId,
+  //       isPreorder: kinguinOrderResponse.isPreorder,
+  //       totalQty: kinguinOrderResponse.totalQty,
+  //       preorderReleaseDate: kinguinOrderResponse.preorderReleaseDate,
+  //       products: (kinguinOrderResponse.products || []).map((p) => ({
+  //         kinguinId: p.kinguinId,
+  //         offerId: p.offerId,
+  //         productId: p.productId,
+  //         qty: p.qty,
+  //         name: p.name,
+  //         price: p.price,
+  //         totalPrice: p.totalPrice,
+  //         requestPrice: p.requestPrice,
+  //         isPreorder: p.isPreorder,
+  //         releaseDate: p.releaseDate,
+  //         keyType: p.keyType,
+  //         keys: p.keys,
+  //       })),
+  //       kinguinRequest: kinguinPayload,
+  //       kinguinResponse: kinguinOrderResponse,
+  //     },
+  //   },
+  //   { new: true }
+  // );
 
-  if (orderDoc.status === "completed") {
-    orderDoc.localStatus = "delivered";
-    await orderDoc.save();
-  }
+  // if (orderDoc.status === "completed") {
+  //   orderDoc.localStatus = "delivered";
+  //   await orderDoc.save();
+  // }
 
   res.status(201).json({
     status: "success",
