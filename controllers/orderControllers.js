@@ -245,9 +245,7 @@ exports.createOrder = catchAsyncErrors(async (req, res, next) => {
           isPreorder: p.isPreorder,
           releaseDate: p.releaseDate,
           keyType: p.keyType,
-          keys: Array.isArray(p.keys)
-            ? p.keys.map((k) => ({ id: k.id, status: k.status }))
-            : [],
+          keys: p.keys,
         })),
         kinguinRequest: kinguinPayload,
         kinguinResponse: kinguinOrderResponse,
@@ -261,7 +259,51 @@ exports.createOrder = catchAsyncErrors(async (req, res, next) => {
     await orderDoc.save();
   }
 
-  res.status(201).json({ status: "success", data: { order: orderDoc } });
+  res.status(201).json({
+    status: "success",
+    data: {
+      totalPrice: 11.49,
+      requestTotalPrice: 11.49,
+      status: "completed",
+      originalStatus: "COMPLETED",
+      kidId: 20678477,
+      userEmail: "gamewiseiq@gmail.com",
+      storeId: 5366,
+      createdAt: "2025-09-04T21:30:17+00:00",
+      updatedAt: "2025-09-04T21:30:17+00:00",
+      orderId: "908C54513B05",
+      orderExternalId: "ORD-ESA-20250903-0022",
+      paymentPrice: 11.49,
+      products: [
+        {
+          kinguinId: 27890,
+          offerId: "6839f530ce39120143190bb2",
+          productId: "5c9b67a92539a4e8f17a59a9",
+          qty: 1,
+          name: "Dead by Daylight PC Steam CD Key",
+          price: 11.49,
+          totalPrice: 11.49,
+          requestPrice: 11.49,
+          isPreorder: false,
+          releaseDate: "2016-06-14",
+          accurate: true,
+          broker: "internal",
+          keys: [
+            {
+              id: "68ba04e9f84bce32e770d931",
+              status: "DELIVERED",
+            },
+          ],
+        },
+      ],
+      totalQty: 1,
+      dispatch: {
+        dispatchId: 69003276,
+        createdAt: "2025-09-04T21:30:17+00:00",
+      },
+      isPreorder: false,
+    },
+  });
 });
 
 // this shit for admin it needs testing
@@ -409,9 +451,41 @@ exports.getOrders = factory.getAll(Orders, "orders");
 
 // single get
 exports.getOrder = catchAsyncErrors(async (req, res, next) => {
-  const order = await Orders.findById(req.params.orderId).populate("user");
-  if (!order) return next(new appError("order not found", 404));
-  res.status(200).json({ status: "success", data: { order } });
+  if (!KINGUIN_API_KEY)
+    return next(new appError("Kinguin API key missing", 500));
+  if (!KINGUIN_API_BASE)
+    return next(new appError("Kinguin base URL missing", 500));
+
+  const { orderId } = req.params;
+  if (!orderId || typeof orderId !== "string") {
+    return next(new appError("Valid orderId param is required", 400));
+  }
+
+  const url = `${KINGUIN_API_BASE}/v1/order/${encodeURIComponent(orderId)}`;
+
+  try {
+    const { data } = await axios.get(url, {
+      headers: { "X-Api-Key": KINGUIN_API_KEY },
+    });
+
+    // Keep a consistent API shape with your other controllers
+    return res.status(200).json({
+      status: "success",
+      data, // Kinguin Order Object
+    });
+  } catch (err) {
+    // Normalize axios errors into your appError flow
+    const status = err?.response?.status || 500;
+    const message =
+      err?.response?.data?.message ||
+      (typeof err?.response?.data === "string"
+        ? err.response.data
+        : err.message) ||
+      "Failed to fetch order from Kinguin";
+
+    // Common cases: 401 bad API key, 404 not found, 429 rate limit, 5xx upstream
+    return next(new appError(`Kinguin order fetch failed: ${message}`, status));
+  }
 });
 
 // update
