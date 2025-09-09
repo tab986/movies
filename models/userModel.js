@@ -24,15 +24,15 @@ const governorates = [
 const usersSchema = new mongoose.Schema(
   {
     fullName: String,
-    phoneNumber: { type: String, index: true, sparse: true },
+    phone: { type: String, index: true, sparse: true },
     governorate: { type: String, enum: governorates },
     city: String,
     address: String,
-    notes: String,
+    profileImage: String,
     role: { type: String, enum: ["user", "admin"], default: "user" },
     password: {
       type: String,
-      // required: [true, "insert the user password"],
+      required: [true, "insert the user password"],
       minlength: 8,
       select: false,
     },

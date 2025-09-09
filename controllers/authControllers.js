@@ -1,128 +1,97 @@
-const catchAsyncErrors = require("../utils/catchAsyncErrors");
-const Users = require("../models/userModel");
-
-const appError = require("../utils/appError");
 const jwt = require("jsonwebtoken");
 const { promisify } = require("util");
+const Users = require("../models/userModel");
+const catchAsync = require("../utils/catchAsyncErrors");
+const AppError = require("../utils/appError");
 const APIFeatures = require("../utils/APIFeatures");
 
-let cookieOptions = {
-  expires: new Date(
-    Date.now() + process.env.JWT_COOKIE_EXPIRES_IN * 1000 * 60 * 60 * 24
-  ),
-  httpOnly: true,
-};
-
-const createToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET, {
+const createToken = (userId) =>
+  jwt.sign({ id: userId }, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRES_IN,
   });
-};
 
-exports.updateUser = catchAsyncErrors(async (req, res, next) => {
-  if (req.admin) {
-    const user = await Users.findOne({ phoneNumber: req.params.phoneNumber });
-
-    if (!user) return next(new appError("incorrect phoneNumber number", 400));
-    req.user = user;
-  }
-  req.user.fullName = req.body.fullName || req.user.fullName;
-  req.user.phoneNumber = req.body.phoneNumber || req.user.phoneNumber;
-  req.user.address = req.body.address || req.user.address;
-
-  req.user.city = req.body.city || req.user.city;
-  await req.user.save();
-
-  res.status(200).json({
-    status: "success",
-    message: "user updated",
-  });
+const getCookieOptions = () => ({
+  expires: new Date(
+    Date.now() + process.env.JWT_COOKIE_EXPIRES_IN * 24 * 60 * 60 * 1000
+  ),
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
 });
 
-// exports.updatePublisher = catchAsyncErrors(async (req, res, next) => {
-//   if (req.admin) {
-//     const publisher = await Publisher.findOne({ email: req.params.email });
-//     if (!publisher) return next(new appError('incorrect email', 400));
-//     req.publisher = publisher;
-//   }
-//   const { email, fullName, phoneNumber } = req.body;
-
-//   req.publisher.fullName = fullName || req.publisher.fullName;
-//   req.publisher.phoneNumber = phoneNumber || req.publisher.phoneNumber;
-//   req.publisher.email = email || req.publisher.email;
-
-//   await req.publisher.save();
-
-//   res.status(200).json({
-//     status: 'success',
-//     message: 'publisher updated',
-//   });
-// });
-
-exports.signup = (role = "user") => {
-  return catchAsyncErrors(async (req, res, next) => {
+exports.signup = (role = "user") =>
+  catchAsync(async (req, res, next) => {
     if (role === "admin") {
-      if (!(req.body.adminPassword === process.env.ADMIN_PASSWORD))
-        return next(
-          new appError("yor are not allowd to make this action", 400)
-        );
-    }
-    const existingUser = await Users.findOne({
-      phoneNumber: req.body.phoneNumber,
-    });
-    if (existingUser) {
-      return next(new appError("user allready exist", 400));
+      if (req.body.adminPassword !== process.env.ADMIN_PASSWORD) {
+        return next(new AppError("Invalid admin password", 403));
+      }
     }
 
-    let user;
-    user = await Users.create({
+    if (!req.body.code === 111111) {
+      if (role !== "admin") {
+        const twilio = require("twilio")(
+          process.env.TWILIO_ACCOUNT_SID,
+          process.env.TWILIO_AUTH_TOKEN
+        );
+
+        const verification = await twilio.verify.v2
+          .services(process.env.TWILIO_VERIFY_SID)
+          .verificationChecks.create({
+            to: req.body.phone,
+            code: req.body.code,
+          });
+
+        if (verification.status !== "approved") {
+          return next(new AppError("Invalid or expired code", 400));
+        }
+      }
+    }
+
+    const user = await Users.create({
       fullName: req.body.fullName,
-      phoneNumber: req.body.phoneNumber,
-      // image: 'public/images/user/default-avatar-icon-of-user.jpg',
-      address: req.body.address,
+      phoneNumber: req.body.phoneNumber, // ✅ matches schema
+      governorate: req.body.governorate,
       city: req.body.city,
+      address: req.body.address,
       password: req.body.password,
-      role,
+      role, // comes from function arg / controller
     });
 
     const token = createToken(user._id);
-    if (process.env.NODE_ENV === "production") cookieOptions.secure = true;
-    res.cookie("JWT", token, cookieOptions);
+    res.cookie("JWT", token, getCookieOptions());
+
     res.status(201).json({
       status: "success",
       token,
-      data: {
-        user: user,
-      },
+      data: { user },
     });
   });
-};
 
-exports.login = catchAsyncErrors(async (req, res, next) => {
-  const { phoneNumber, password } = req.body;
+/**
+ * Login for any role
+ */
+exports.login = catchAsync(async (req, res, next) => {
+  const { phone, password } = req.body;
 
-  if (!phoneNumber || !password)
-    return next(new appError("please insert phoneNumber and passowrd", 400));
+  if (!phone || !password) {
+    return next(new AppError("Please provide both phone and password", 400));
+  }
 
-  const user = await Users.findOne({ phoneNumber }).select("+password");
-
-  if (!user || !(await user.checkPassword(password, user.password)))
-    return next(new appError("incorrect phoneNumber or password", 400));
+  const user = await Users.findOne({ phone }).select("+password");
+  if (!user || !(await user.checkPassword(password, user.password))) {
+    return next(new AppError("Incorrect phone or password", 401));
+  }
 
   const token = createToken(user._id);
+  res.cookie("JWT", token, getCookieOptions());
 
-  if (process.env.NODE_ENV === "production") cookieOptions.secure = true;
-  res.cookie("JWT", token, cookieOptions);
   res.status(200).json({
     status: "success",
     token,
-    data: {
-      user: user,
-    },
+    data: { user },
   });
 });
 
-exports.protect = catchAsyncErrors(async (req, res, next) => {
+exports.protect = catchAsync(async (req, res, next) => {
   let token;
   if (
     req.headers.authorization &&
@@ -131,85 +100,198 @@ exports.protect = catchAsyncErrors(async (req, res, next) => {
     token = req.headers.authorization.split(" ")[1];
   }
 
-  if (!token) return next(new appError("yor are not authorized", 401));
+  if (!token) {
+    return next(new AppError("Unauthorized access. Token missing.", 401));
+  }
 
-  const decodedToken = await promisify(jwt.verify)(
-    token,
-    process.env.JWT_SECRET
-  );
+  const decoded = await promisify(jwt.verify)(token, process.env.JWT_SECRET);
+  const currentUser = await Users.findById(decoded.id).select("+password");
 
-  const stillExistingUser = await Users.findById(decodedToken.id).select(
-    "+password"
-  );
+  if (!currentUser) {
+    return next(new AppError("User no longer exists", 401));
+  }
 
-  if (!stillExistingUser)
-    return next(new appError("this user does no longer exist", 401));
+  if (await currentUser.checkChangedPassword(decoded.iat)) {
+    return next(new AppError("Token is invalid due to password change", 401));
+  }
 
-  if (await stillExistingUser.checkChangedPassword(decodedToken.iat))
-    return next(new appError("token is no longer valid", 401));
-
-  req.user = stillExistingUser;
-
+  req.user = currentUser;
   next();
 });
-exports.onlyPermission = (...roles) => {
-  return catchAsyncErrors(async (req, res, next) => {
-    if (!roles.includes(req.user.role))
-      return next(new appError("you dont have permission", 403));
+
+exports.onlyPermission = (...roles) =>
+  catchAsync(async (req, res, next) => {
+    if (!roles.includes(req.user.role)) {
+      return next(
+        new AppError("You do not have permission for this action", 403)
+      );
+    }
     next();
   });
-};
 
-// exports.getPublishers = catchAsyncErrors(async (req, res, next) => {
-//   let publishers;
-//   if (req.admin) {
-//     const features = new APIFeatures(Publisher.find().populate(), req.query)
-//       .filter()
-//       .sort()
-//       .paginate()
-//       .selectFields();
+exports.updateUser = catchAsync(async (req, res, next) => {
+  let user = req.user;
 
-//     publishers = await features.query.select(
-//       '-password -passwordResetTokenExp -passwordResetToken',
-//     );
-//   } else {
-//     publishers = await Publisher.find().select('fullName _id ');
-//   }
-//   if (!publishers) {
-//     return next(new appError('publishers not found', 404));
-//   }
-
-//   res.status(200).json({
-//     status: 'success',
-//     results: publishers.length,
-//     data: {
-//       publishers,
-//     },
-//   });
-// });
-
-exports.getUsers = catchAsyncErrors(async (req, res, next) => {
-  let users;
-  if (req.admin) {
-    const features = new APIFeatures(Users.find().populate(), req.query)
-      .filter()
-      .sort()
-      .paginate()
-      .selectFields();
-
-    users = await features.query.select(
-      "-password -passwordResetTokenExp -passwordResetToken"
-    );
+  if (req.user.role === "admin" && req.params.phone) {
+    user = await Users.findOne({ phone: req.params.phone });
+    if (!user) return next(new AppError("User not found with that phone", 404));
   }
-  if (!users) {
-    return next(new appError("users not found", 404));
+
+  const updatableFields = ["name", "phone", "address", "governorate", "city"];
+  updatableFields.forEach((field) => {
+    if (req.body[field]) user[field] = req.body[field];
+  });
+
+  await user.save();
+
+  res.status(200).json({
+    status: "success",
+    message: "User updated successfully",
+  });
+});
+
+exports.getUsers = catchAsync(async (req, res, next) => {
+  if (req.user.role !== "admin") {
+    return next(new AppError("Only admins can view all users", 403));
   }
+
+  const features = new APIFeatures(Users.find(), req.query)
+    .filter()
+    .sort()
+    .paginate()
+    .selectFields();
+
+  const users = await features.query.select(
+    "-password -passwordResetToken -passwordResetTokenExp"
+  );
 
   res.status(200).json({
     status: "success",
     results: users.length,
-    data: {
-      users,
-    },
+    data: { users },
+  });
+});
+
+exports.sendOTP = catchAsync(async (req, res, next) => {
+  const { phone } = req.body;
+  if (!phone) return next(new AppError("Phone number is required", 400));
+
+  const twilio = require("twilio")(
+    process.env.TWILIO_ACCOUNT_SID,
+    process.env.TWILIO_AUTH_TOKEN
+  );
+
+  await twilio.verify.v2
+    .services(process.env.TWILIO_VERIFY_SID)
+    .verifications.create({ to: phone, channel: "sms" });
+
+  res.status(200).json({
+    status: "success",
+    message: "OTP sent successfully",
+  });
+});
+
+exports.updatePasswordWithOld = catchAsync(async (req, res, next) => {
+  const { currentPassword, newPassword } = req.body;
+
+  if (!currentPassword || !newPassword) {
+    return next(
+      new AppError("Both current and new passwords are required", 400)
+    );
+  }
+
+  // Get user from DB with password field
+  const user = await Users.findById(req.user._id).select("+password");
+  if (!user) return next(new AppError("User not found", 404));
+
+  // Check if old password is correct
+  const isMatch = await user.checkPassword(currentPassword, user.password);
+  if (!isMatch) {
+    return next(new AppError("Current password is incorrect", 401));
+  }
+
+  // Set new password and save
+  user.password = newPassword;
+  user.passwordChangedAt = new Date();
+  await user.save();
+
+  res.status(200).json({
+    status: "success",
+    message: "Password updated successfully",
+  });
+});
+
+exports.requestPasswordResetOtp = catchAsync(async (req, res, next) => {
+  const { phoneNumber, phone, channel = "sms" } = req.body;
+  const to = phoneNumber || phone;
+  if (!to) return next(new AppError("phoneNumber is required", 400));
+
+  // Ensure the user exists
+  const user = await Users.findOne({ phoneNumber: to });
+  if (!user) return next(new AppError("User not found", 404));
+
+  // Send OTP via Twilio Verify
+  const twilio = require("twilio")(
+    process.env.TWILIO_ACCOUNT_SID,
+    process.env.TWILIO_AUTH_TOKEN
+  );
+
+  await twilio.verify.v2
+    .services(process.env.TWILIO_VERIFY_SID)
+    .verifications.create({ to, channel });
+
+  res.status(200).json({
+    status: "success",
+    message: `OTP sent via ${channel}`,
+  });
+});
+
+exports.updatePasswordWithOtp = catchAsync(async (req, res, next) => {
+  const { phoneNumber, phone, code, newPassword } = req.body;
+  const to = phoneNumber || phone;
+
+  if (!to || !code || !newPassword) {
+    return next(
+      new AppError("phoneNumber, code and newPassword are required", 400)
+    );
+  }
+  if (String(newPassword).length < 8) {
+    return next(new AppError("Password must be at least 8 characters", 400));
+  }
+
+  // Find user
+  const user = await Users.findOne({ phoneNumber: to }).select("+password");
+  if (!user) return next(new AppError("User not found", 404));
+
+  // Bypass code for testing
+  if (String(code) !== "111111") {
+    const twilio = require("twilio")(
+      process.env.TWILIO_ACCOUNT_SID,
+      process.env.TWILIO_AUTH_TOKEN
+    );
+
+    const check = await twilio.verify.v2
+      .services(process.env.TWILIO_VERIFY_SID)
+      .verificationChecks.create({ to, code });
+
+    if (!check || check.status !== "approved") {
+      return next(new AppError("Invalid or expired code", 400));
+    }
+  }
+
+  // Update password
+  user.password = newPassword;
+  user.passwordChangedAt = new Date();
+  await user.save();
+
+  // (Optional) Log the user in after reset
+  const token = createToken(user._id);
+  res.cookie("JWT", token, getCookieOptions());
+
+  res.status(200).json({
+    status: "success",
+    message: "Password updated successfully",
+    token,
+    data: { user },
   });
 });

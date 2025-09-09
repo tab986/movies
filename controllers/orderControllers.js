@@ -461,7 +461,7 @@ exports.getOrder = catchAsyncErrors(async (req, res, next) => {
     return next(new appError("Valid orderId param is required", 400));
   }
 
-  const url = `${KINGUIN_API_BASE}/v1/order/${encodeURIComponent(orderId)}`;
+  const url = `${KINGUIN_API_BASE}/v2/order/${encodeURIComponent(orderId)}/keys`;
 
   try {
     const { data } = await axios.get(url, {
