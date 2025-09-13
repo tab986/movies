@@ -1,0 +1,57 @@
+// Routes to manage sync profiles and trigger delta syncs manually.
+
+const router = require('express').Router();
+const { SyncProfile } = require('../models/SyncState');
+const { runOnce } = require('../worker/deltaSync');
+const { run: runImportAll } = require('../worker/importAll');
+const { run: runReconcile } = require('../worker/reconcile');
+
+// Retrieve the current sync profile
+router.get('/profile', async (req, res) => {
+  const profile = await SyncProfile.findOne({ name: 'default' }).lean();
+  res.json({ status: 'success', profile: profile || { name: 'default', filters: {}, fields: [] } });
+});
+
+// Update or create the sync profile. Expects { filters, fields } in body
+router.put('/profile', async (req, res) => {
+  const { filters = {}, fields = [] } = req.body || {};
+  const saved = await SyncProfile.findOneAndUpdate(
+    { name: 'default' },
+    { $set: { filters, fields } },
+    { upsert: true, new: true }
+  ).lean();
+  res.json({ status: 'success', profile: saved });
+});
+
+// Trigger a delta sync immediately. Optional body: { overlapMinutes }
+router.post('/run', async (req, res) => {
+  try {
+    const overlapMinutes = Number(req.body?.overlapMinutes || 2);
+    const r = await runOnce({ overlapMinutes });
+    res.json({ status: 'success', updated: r.updated });
+  } catch (e) {
+    res.status(500).json({ status: 'error', message: e.message });
+  }
+});
+
+// Trigger a full import (import all products). This should be run rarely (e.g. first time or after changing filters drastically).
+router.post('/import', async (req, res) => {
+  try {
+    await runImportAll();
+    res.json({ status: 'success', message: 'Full import completed' });
+  } catch (e) {
+    res.status(500).json({ status: 'error', message: e.message });
+  }
+});
+
+// Trigger a reconciliation to hide removed products.
+router.post('/reconcile', async (req, res) => {
+  try {
+    await runReconcile();
+    res.json({ status: 'success', message: 'Reconciliation completed' });
+  } catch (e) {
+    res.status(500).json({ status: 'error', message: e.message });
+  }
+});
+
+module.exports = router;

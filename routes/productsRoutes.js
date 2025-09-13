@@ -1,4 +1,5 @@
 const exp = require("express");
+// Use the local catalog controller instead of proxying the Kinguin API.
 const productsControllers = require("../controllers/productControllers");
 const reviewsControllers = require("../controllers/reviewsControllers");
 const categoriesControllers = require("../controllers/categoriesControllers");
@@ -23,4 +24,7 @@ router.route("/").get(productsControllers.listProducts);
 // router.route("/find-by-categories").post(productsControllers.findByCategories);
 
 router.get("/:kinguinId", productsControllers.getProduct);
+
+// Override name/description/images for a product
+router.patch("/:kinguinId/overrides", productsControllers.patchOverrides);
 module.exports = router;

@@ -4,6 +4,11 @@ const dashboardRoutes = require("./routes/dashboardRoutes");
 const orderRoutes = require("./routes/orderRoutes");
 const productsRouter = require("./routes/productsRoutes");
 
+// Import new routes for Kinguin sync and local catalog
+const syncRoutes = require('./routes/syncRoutes');
+const webhooks = require('./routes/webhooks');
+const kinguinCacheRoutes = require('./routes/kinguinCacheRoutes');
+
 const errorControllers = require("./controllers/errorControllers");
 const appError = require("./utils/appError");
 
@@ -64,6 +69,13 @@ app.use("/api/v1/users", userRoutes);
 app.use("/api/v1/dashboard", dashboardRoutes);
 app.use("/api/v1/orders", orderRoutes);
 app.use("/api/v1/products", productsRouter);
+
+// Mount sync control endpoints under /api/v1/sync
+app.use('/api/v1/sync', syncRoutes);
+// Mount webhooks for Kinguin events
+app.use('/webhooks', webhooks);
+// Serve your local cached catalog under /api/v1/catalog
+app.use('/api/v1/catalog', kinguinCacheRoutes);
 
 app.all("*", (req, res, next) => {
   next(new appError(`can't find ${req.originalUrl}`, 404));
