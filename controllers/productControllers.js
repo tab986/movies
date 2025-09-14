@@ -78,6 +78,9 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
     inStock: p.derived?.inStock,
     regionId: p.remote?.regionId,
     tags: p.remote?.tags,
+    platform: p.remote?.platform,
+    genres: p.remote?.genres,
+    description: p.overrides?.description || p.remote?.description,
   }));
 
   res.status(200).json({
