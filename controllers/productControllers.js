@@ -51,8 +51,8 @@ function buildListQuery(qs) {
     sortBy === "name"
       ? { "overrides.name": sortType, "remote.name": sortType }
       : sortBy === "updatedAt"
-        ? { updatedAt: sortType } // local doc timestamps
-        : { "derived.priceMin": sortType }; // default
+      ? { updatedAt: sortType } // local doc timestamps
+      : { "derived.priceMin": sortType }; // default
 
   return { where, page, limit, sort };
 }
@@ -67,7 +67,7 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
 
   const [items, count] = await Promise.all([
     KinguinProduct.find(where).sort(sort).skip(skip).limit(limit).lean(),
-    KinguinProduct.countDocuments(where),
+    KinguinProduct.countDocuments(),
   ]);
 
   const results = items.map((p) => ({
