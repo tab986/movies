@@ -128,6 +128,10 @@ const PLATFORM_SYNONYMS = new Map([
   ["xbox one", "xbox one"],
   ["xbox series x|s", "xbox series x|s"],
   ["xbox 360", "xbox 360"],
+  ["rockstar", "pc rockstar games"],
+  ["rockstar games", "pc rockstar games"],
+  ["rockstar launcher", "pc rockstar games"],
+  ["social club", "pc rockstar games"],
 ]);
 
 function normalizePlatform(p) {
