@@ -120,7 +120,7 @@ exports.getProduct = catchAsyncErrors(async (req, res, next) => {
 
 /**
  * PATCH /api/v1/products/:kinguinId/overrides
- * Write ONLY to overrides.* (never touched by sync).
+ * Write ONLY to overrides.* (never touched by sync)..
  */
 exports.patchOverrides = catchAsyncErrors(async (req, res, next) => {
   const id = Number(req.params.kinguinId);
