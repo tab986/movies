@@ -20,6 +20,8 @@ function buildListQuery(qs) {
   const limit = Math.max(1, Math.min(200, Number(qs.limit) || 24)); // UI page size
 
   if (qs.regionId) where["remote.regionId"] = Number(qs.regionId);
+  if (qs.platform) where["remote.platform"] = qs.platform;
+  if (qs.genres) where["remote.genres"] = qs.genres;
 
   if (qs.tags) {
     const list = String(qs.tags)
@@ -79,6 +81,8 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
     regionId: p.remote?.regionId,
     tags: p.remote?.tags,
     platform: p.remote?.platform,
+    qty: p.remote?.qty,
+    updatedAt: p.remote?.updatedAt,
     genres: p.remote?.genres,
     description: p.overrides?.description || p.remote?.description,
   }));
