@@ -97,7 +97,6 @@ const NAME_REQUIRE_RE = /\bcd\s*key\b/i;
 const NAME_EXCLUDE_RE = /\baccount\b/i;
 
 // ---------------- Normalizers & synonyms ----------------
-// ---- Normalizers & synonyms (fixed) ----
 function normStr(s) {
   return String(s || "")
     .toLowerCase()
@@ -106,8 +105,6 @@ function normStr(s) {
     .trim();
 }
 
-// All keys MUST be normalized (lowercased) because we call normStr(p) before lookup.
-// All values MUST be the normalized allow-list tokens you compare against.
 const PLATFORM_SYNONYMS = new Map([
   ["steam", "pc steam"],
   ["pc steam", "pc steam"],
@@ -138,7 +135,7 @@ const PLATFORM_SYNONYMS = new Map([
 
   ["pc", "pc"],
 
-  // Xbox variants
+  // Xbox
   ["xbox one", "xbox one"],
   ["xbox series x|s", "xbox series x|s"],
   ["xbox series x", "xbox series x|s"],
@@ -150,8 +147,6 @@ function normalizePlatform(p) {
   const n = normStr(p);
   if (!n) return "";
   if (PLATFORM_SYNONYMS.has(n)) return PLATFORM_SYNONYMS.get(n);
-
-  // Heuristics for common mixed labels like "PC (Steam)" etc.
   if (/pc.*steam|steam.*pc/.test(n)) return "pc steam";
   if (/pc.*(uplay|ubisoft)|(uplay|ubisoft).*pc/.test(n))
     return "pc ubisoft connect";
@@ -162,14 +157,13 @@ function normalizePlatform(p) {
   return n;
 }
 
-// Build normalized allow-list once
 const ALLOWED_PLATFORMS_NORMALIZED = new Set(
   ALLOWED_PLATFORMS.map((p) => normalizePlatform(p))
 );
 
-// Final matcher
 function allowedPlatformMatch(upstreamPlatform) {
-  return ALLOWED_PLATFORMS_NORMALIZED.has(normalizePlatform(upstreamPlatform));
+  const normalized = normalizePlatform(upstreamPlatform);
+  return !!normalized && ALLOWED_PLATFORMS_NORMALIZED.has(normalized);
 }
 
 function normalizeGenre(g) {
