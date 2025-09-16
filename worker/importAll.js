@@ -116,7 +116,7 @@ const PLATFORM_SYNONYMS = new Map([
   ["ea app", "ea app"],
   ["battle.net", "pc battle.net"],
   ["battlenet", "pc battle.net"],
-  ["blizzard", "pc battle.net"],
+  ["Rockstar Games", "Rockstar Games"],
   ["epic", "pc epic games"],
   ["epic games", "pc epic games"],
   ["gog", "pc gog"],
