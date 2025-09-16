@@ -97,7 +97,7 @@ const NAME_REQUIRE_RE = /\bcd\s*key\b/i;
 const NAME_EXCLUDE_RE = /\baccount\b/i;
 
 // ---------------- Normalizers & synonyms ----------------
-
+// ---- Normalizers & synonyms (fixed) ----
 function normStr(s) {
   return String(s || "")
     .toLowerCase()
@@ -106,40 +106,54 @@ function normStr(s) {
     .trim();
 }
 
+// All keys MUST be normalized (lowercased) because we call normStr(p) before lookup.
+// All values MUST be the normalized allow-list tokens you compare against.
 const PLATFORM_SYNONYMS = new Map([
   ["steam", "pc steam"],
   ["pc steam", "pc steam"],
+
   ["uplay", "pc ubisoft connect"],
   ["ubisoft", "pc ubisoft connect"],
   ["ubisoft connect", "pc ubisoft connect"],
+
   ["origin", "ea app"],
   ["ea app", "ea app"],
+
   ["battle.net", "pc battle.net"],
   ["battlenet", "pc battle.net"],
-  ["Rockstar Games", "Rockstar Games"],
+  ["blizzard", "pc battle.net"],
+
   ["epic", "pc epic games"],
   ["epic games", "pc epic games"],
+
   ["gog", "pc gog"],
-  ["rockstar", "pc rockstar games"],
-  ["rockstar games", "pc rockstar games"],
-  ["social club", "pc rockstar games"],
-  ["mog station", "pc mog station"],
-  ["pc", "pc"],
-  ["xbox one", "xbox one"],
-  ["xbox series x|s", "xbox series x|s"],
-  ["xbox 360", "xbox 360"],
+
+  // ✅ Rockstar variants
   ["rockstar", "pc rockstar games"],
   ["rockstar games", "pc rockstar games"],
   ["rockstar launcher", "pc rockstar games"],
   ["social club", "pc rockstar games"],
+
+  ["mog station", "pc mog station"],
+
+  ["pc", "pc"],
+
+  // Xbox variants
+  ["xbox one", "xbox one"],
+  ["xbox series x|s", "xbox series x|s"],
+  ["xbox series x", "xbox series x|s"],
+  ["xbox series s", "xbox series x|s"],
+  ["xbox 360", "xbox 360"],
 ]);
 
 function normalizePlatform(p) {
   const n = normStr(p);
   if (!n) return "";
   if (PLATFORM_SYNONYMS.has(n)) return PLATFORM_SYNONYMS.get(n);
+
+  // Heuristics for common mixed labels like "PC (Steam)" etc.
   if (/pc.*steam|steam.*pc/.test(n)) return "pc steam";
-  if (/pc.*uplay|uplay.*pc|pc.*ubisoft|ubisoft.*pc/.test(n))
+  if (/pc.*(uplay|ubisoft)|(uplay|ubisoft).*pc/.test(n))
     return "pc ubisoft connect";
   if (/epic/.test(n)) return "pc epic games";
   if (/(battle\.?net|blizzard)/.test(n)) return "pc battle.net";
@@ -148,13 +162,14 @@ function normalizePlatform(p) {
   return n;
 }
 
+// Build normalized allow-list once
 const ALLOWED_PLATFORMS_NORMALIZED = new Set(
-  ALLOWED_PLATFORMS.map(normalizePlatform)
+  ALLOWED_PLATFORMS.map((p) => normalizePlatform(p))
 );
 
+// Final matcher
 function allowedPlatformMatch(upstreamPlatform) {
-  const normalized = normalizePlatform(upstreamPlatform);
-  return !!normalized && ALLOWED_PLATFORMS_NORMALIZED.has(normalized);
+  return ALLOWED_PLATFORMS_NORMALIZED.has(normalizePlatform(upstreamPlatform));
 }
 
 function normalizeGenre(g) {
