@@ -18,8 +18,13 @@ mongoose.connect(DB).then((con) => {
 
 const port = process.env.PORT || 3000;
 const server = app.listen(port, () => {
-  console.log("running...");
+  console.log(`Server running on port ${port}`);
 });
+
+// Keep long-running import requests alive on the Node side
+server.requestTimeout = 0; // disable (Node v18+)
+server.headersTimeout = 0; // disable (Node v18+)
+server.keepAliveTimeout = 0; // optional: let the import hold the socket
 
 // {
 //   useCreateIndex: true,

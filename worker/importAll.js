@@ -1,37 +1,60 @@
 // worker/importAll.js
-// Full catalog import from Kinguin ESA -> Mongo cache (one-time / manual run)
+// Full catalog import from Kinguin ESA -> Mongo cache (manual/one-time).
+// STRICT MODE (as requested):
+//  - Name MUST include "CD Key" and MUST NOT include "Account"
+//  - Region must be in allow-list
+//  - Platform required: normalize via synonyms/regex, must match allow-list
+//  - Genres required: must match allow-list; blacklist enforced
+//  - Price required: must have product.price or any offers[].price
+//  - IQD price: priceIQD = round(minEUR * EUR_TO_IQD + IQD_MARKUP)
+// FAST:
+//  - Concurrency (default 10), HTTP keep-alive agent, retry/backoff, per-page bulkWrite
 //
-// Filters:
-// - Name MUST match /cd\s*key/i and MUST NOT contain /account/i
-// - Region, Platform (with synonyms), Genres allow-list
-// - Banned genres blacklist (drop even if other genres exist)
-// - Optional REQUIRE_PLATFORM / REQUIRE_GENRES env toggles
-//
-// Price: priceIQD = round(minEUR * EUR_TO_IQD + IQD_MARKUP)
-//
-// Logging: upstream_total, fetched, kept, and per-reason skips (region/platform/genre/missing/name/bannedGenre)
-//
-// Safe Mongo handling: only disconnects if this script opened it.
+// Exports: runImportAll()
+// CLI:    node worker/importAll.js
 
-require("dotenv").config({ path: "./config.env" });
+require("dotenv").config({ path: process.env.DOTENV_PATH || "./config.env" });
+
+const https = require("https");
+const axiosRaw = require("axios");
 const mongoose = require("mongoose");
-const { client, withRetry } = require("../lib/kinguinClient");
 const KinguinProduct = require("../models/KinguinProduct");
-const { SyncProfile } = require("../models/SyncState");
 
-const PAGE_SIZE = Number(process.env.SYNC_PAGE_SIZE || 100);
-const CONCURRENCY = Number(process.env.SYNC_CONCURRENCY || 10);
+// ------------------------------- HTTP client -------------------------------
+const httpsAgent = new https.Agent({
+  keepAlive: true,
+  maxSockets: 32, // tune if ESA rate-limits; try 16/12/8 if needed
+  maxFreeSockets: 8,
+  keepAliveMsecs: 10_000,
+});
+
+const axios = axiosRaw.create({
+  timeout: 30_000,
+  httpsAgent,
+});
+
+// --------------------------------- Config ---------------------------------
+const KINGUIN_BASE =
+  process.env.KINGUIN_API_BASE || "https://gateway.kinguin.net/esa/api";
+const KINGUIN_KEY = process.env.KINGUIN_API_KEY;
+const MONGODB_URI = process.env.MONGODB_URI;
+const MONGODB_DB = process.env.MONGODB_DB;
+
+const PAGE_SIZE = Number(process.env.SYNC_PAGE_SIZE || 100); // ESA max = 100
+const CONCURRENCY = Number(process.env.SYNC_CONCURRENCY || 10); // 8–12 is a good range
 
 const EUR_TO_IQD = Number(process.env.EUR_TO_IQD || 1535);
 const IQD_MARKUP = Number(process.env.IQD_MARKUP || 5800);
 
-const REQUIRE_PLATFORM = String(process.env.REQUIRE_PLATFORM || "0") === "1";
-const REQUIRE_GENRES = String(process.env.REQUIRE_GENRES || "0") === "1";
+// ESA quirk: withText accepts only "yes"; we omit it for speed unless you set env.
+const WITH_TEXT =
+  (process.env.WITH_TEXT || "").toLowerCase() === "yes" ? "yes" : "";
 
-// Regions allowed (Iraq/global)
-const ALLOWED_REGION_IDS = [3, 21, 40, 30, 56, 58, 19, 24, 28, 80, 5, 34, 55];
+// ----------------------------- Strict Business -----------------------------
+// Regions allowed (Iraq + common global-friendly)
+const ALLOWED_REGION_IDS = [3, 5, 19, 21, 24, 28, 30, 34, 40, 55, 56, 58, 80];
 
-// Platforms allow-list
+// Platforms allow-list (canonical names)
 const ALLOWED_PLATFORMS = [
   "PC Epic Games",
   "PC Battle.net",
@@ -48,7 +71,7 @@ const ALLOWED_PLATFORMS = [
   "Xbox Series X|S",
 ];
 
-// Genres allow-list
+// Genres allow-list (canonical)
 const ALLOWED_GENRES = [
   "Action",
   "Adventure",
@@ -79,7 +102,7 @@ const ALLOWED_GENRES = [
   "Visual Novel",
 ];
 
-// Genres blacklist (reject if ANY is present)
+// Blacklist (drop if ANY present)
 const BLACKLIST_GENRES = [
   "Adult Games",
   "Dating Simulator",
@@ -96,7 +119,7 @@ const BLACKLIST_GENRES = [
 const NAME_REQUIRE_RE = /\bcd\s*key\b/i;
 const NAME_EXCLUDE_RE = /\baccount\b/i;
 
-// ---------------- Normalizers & synonyms ----------------
+// ------------------------ Normalizers & helpers ----------------------------
 function normStr(s) {
   return String(s || "")
     .toLowerCase()
@@ -105,34 +128,48 @@ function normStr(s) {
     .trim();
 }
 
+// Platform synonyms map (wide)
 const PLATFORM_SYNONYMS = new Map([
   ["steam", "pc steam"],
   ["pc steam", "pc steam"],
 
+  // Ubisoft
   ["uplay", "pc ubisoft connect"],
   ["ubisoft", "pc ubisoft connect"],
   ["ubisoft connect", "pc ubisoft connect"],
+  ["uplay pc", "pc ubisoft connect"],
+  ["ubisoft connect pc", "pc ubisoft connect"],
 
+  // EA
   ["origin", "ea app"],
   ["ea app", "ea app"],
+  ["eaapp", "ea app"],
 
+  // Battle.net
   ["battle.net", "pc battle.net"],
   ["battlenet", "pc battle.net"],
+  ["battle net", "pc battle.net"],
   ["blizzard", "pc battle.net"],
 
+  // Epic
   ["epic", "pc epic games"],
   ["epic games", "pc epic games"],
+  ["epicgames", "pc epic games"],
 
+  // GOG
   ["gog", "pc gog"],
 
-  // ✅ Rockstar variants
+  // Rockstar
   ["rockstar", "pc rockstar games"],
   ["rockstar games", "pc rockstar games"],
   ["rockstar launcher", "pc rockstar games"],
   ["social club", "pc rockstar games"],
+  ["rockstar social club", "pc rockstar games"],
 
+  // Mog Station (FFXIV)
   ["mog station", "pc mog station"],
 
+  // Generic PC
   ["pc", "pc"],
 
   // Xbox
@@ -143,18 +180,33 @@ const PLATFORM_SYNONYMS = new Map([
   ["xbox 360", "xbox 360"],
 ]);
 
-function normalizePlatform(p) {
-  const n = normStr(p);
+// Canonicalize platform from upstream label (and fallback to regex catch-alls)
+function normalizePlatform(upstreamPlatform) {
+  const n = normStr(upstreamPlatform);
   if (!n) return "";
+
   if (PLATFORM_SYNONYMS.has(n)) return PLATFORM_SYNONYMS.get(n);
-  if (/pc.*steam|steam.*pc/.test(n)) return "pc steam";
-  if (/pc.*(uplay|ubisoft)|(uplay|ubisoft).*pc/.test(n))
+
+  // Regex-based catch-alls (order matters; keep PC first)
+  if (/(^|\s)pc(\s|$)/.test(n) && /(steam)/.test(n)) return "pc steam";
+  if (/(^|\s)pc(\s|$)/.test(n) && /(uplay|ubisoft)/.test(n))
     return "pc ubisoft connect";
+  if (/(origin|ea\s*app)/.test(n)) return "ea app";
+  if (/(battle\.?net|battlenet|blizzard)/.test(n)) return "pc battle.net";
   if (/epic/.test(n)) return "pc epic games";
-  if (/(battle\.?net|blizzard)/.test(n)) return "pc battle.net";
   if (/(rockstar|social club)/.test(n)) return "pc rockstar games";
   if (/gog/.test(n)) return "pc gog";
-  return n;
+  if (/mog station/.test(n)) return "pc mog station";
+
+  // Xbox family
+  if (/xbox series (x|s)|xbox series x\|s/.test(n)) return "xbox series x|s";
+  if (/xbox one/.test(n)) return "xbox one";
+  if (/xbox 360/.test(n)) return "xbox 360";
+
+  // Fallback: if it's literally "pc"
+  if (n === "pc") return "pc";
+
+  return n; // return as-is; will be checked against allow-list canonical set
 }
 
 const ALLOWED_PLATFORMS_NORMALIZED = new Set(
@@ -162,15 +214,16 @@ const ALLOWED_PLATFORMS_NORMALIZED = new Set(
 );
 
 function allowedPlatformMatch(upstreamPlatform) {
-  const normalized = normalizePlatform(upstreamPlatform);
-  return !!normalized && ALLOWED_PLATFORMS_NORMALIZED.has(normalized);
+  const canonical = normalizePlatform(upstreamPlatform);
+  return !!canonical && ALLOWED_PLATFORMS_NORMALIZED.has(canonical);
 }
 
 function normalizeGenre(g) {
+  // Canonical tweaks (e.g., "third person shooter" → "third-person shooter")
   return normStr(g)
-    .replace("third person shooter", "third-person shooter")
-    .replace("point click", "point & click")
-    .replace("story rich", "story rich");
+    .replace(/third person shooter/g, "third-person shooter")
+    .replace(/point (and|&) click/g, "point & click")
+    .replace(/story\s+rich/g, "story rich");
 }
 
 const ALLOWED_GENRES_NORMALIZED = new Set(ALLOWED_GENRES.map(normalizeGenre));
@@ -187,241 +240,297 @@ function bannedGenrePresent(arr) {
   return arr.some((g) => BLACKLIST_GENRES_NORMALIZED.has(normalizeGenre(g)));
 }
 
-// ---------------- Price & derived ----------------
+// ----------------------------- Derived helpers ----------------------------
+function computeMinEUR(up) {
+  const pool = [];
+  const p = Number(up?.price);
+  if (Number.isFinite(p) && p > 0) pool.push(p);
+  if (Array.isArray(up?.offers)) {
+    for (const o of up.offers) {
+      const op = Number(o?.price);
+      if (Number.isFinite(op) && op > 0) pool.push(op);
+    }
+  }
+  return pool.length ? Math.min(...pool) : null;
+}
 
-function eurToIqdWithMarkup(minEur) {
-  if (!Number.isFinite(minEur)) return undefined;
+function eurToIqd(minEur) {
+  if (minEur == null) return undefined;
   return Math.round(minEur * EUR_TO_IQD + IQD_MARKUP);
 }
 
-function computeDerivedFromRaw(p) {
+function computeDerived(up) {
   const inStock =
-    (p?.qty || 0) > 0 ||
-    (Array.isArray(p?.offers) &&
-      p.offers.some((o) => (o?.availableQty || 0) > 0));
+    (Number(up?.qty) || 0) > 0 ||
+    (Array.isArray(up?.offers) &&
+      up.offers.some((o) => (Number(o?.availableQty) || 0) > 0));
 
-  const prices = [];
-  if (Number.isFinite(p?.price) && p.price > 0) prices.push(p.price);
-  if (Array.isArray(p?.offers))
-    for (const o of p.offers)
-      if (Number.isFinite(o?.price) && o.price > 0) prices.push(o.price);
+  const minEur = computeMinEUR(up); // STRICT: must exist (checked gate)
+  const priceMin = eurToIqd(minEur);
 
-  const minEur = prices.length ? Math.min(...prices) : Infinity;
-  const priceMin = eurToIqdWithMarkup(minEur);
   return { inStock, priceMin };
 }
 
-// ---------------- Shaping ----------------
-
-function pickRemote(p, fields) {
-  if (!Array.isArray(fields) || fields.length === 0) {
-    return {
-      name: p.name,
-      description: p.description,
-      images: p.images,
-      price: p.price,
-      qty: p.qty,
-      offers: p.offers,
-      regionId: p.regionId,
-      tags: p.tags,
-      platform: p.platform,
-      genres: p.genres,
-    };
+// ------------------------------ HTTP retry --------------------------------
+async function getWithRetry(
+  url,
+  config,
+  { attempts = 5, baseDelayMs = 400 } = {}
+) {
+  let tryNum = 0;
+  for (;;) {
+    try {
+      return await axios.get(url, config);
+    } catch (err) {
+      const status = err?.response?.status;
+      const retriable =
+        status === 429 ||
+        (status >= 500 && status < 600) ||
+        err.code === "ECONNRESET" ||
+        err.code === "ETIMEDOUT";
+      tryNum++;
+      if (!retriable || tryNum >= attempts) throw err;
+      const jitter = Math.random() * 100;
+      const delay =
+        Math.min(5000, baseDelayMs * Math.pow(2, tryNum - 1)) + jitter;
+      await new Promise((r) => setTimeout(r, delay));
+    }
   }
-  const out = {};
-  for (const f of fields) if (f in p) out[f] = p[f];
-  if (out.price === undefined) out.price = p.price;
-  if (out.qty === undefined) out.qty = p.qty;
-  if (out.offers === undefined) out.offers = p.offers;
-  if (out.regionId === undefined) out.regionId = p.regionId;
-  if (out.tags === undefined) out.tags = p.tags;
-  if (out.platform === undefined) out.platform = p.platform;
-  if (out.genres === undefined) out.genres = p.genres;
-  if (out.name === undefined) out.name = p.name;
-  if (out.description === undefined) out.description = p.description;
-  if (out.images === undefined) out.images = p.images;
-  return out;
 }
 
-// ---------------- Connectivity ----------------
-
-async function ensureConnection() {
-  if (mongoose.connection.readyState === 1) return false;
-  await mongoose.connect(process.env.MONGODB_URI, {
-    dbName: process.env.MONGODB_DB,
-  });
-  return true;
-}
-
-async function fetchPage(page, filters) {
-  return withRetry(async () => {
-    const { data } = await client.get("/v1/products", {
-      params: { ...filters, page, limit: PAGE_SIZE, withText: "yes" },
-    });
-    return data;
-  });
-}
-
-// ---------------- Main ----------------
-
-async function run() {
-  const openedHere = await ensureConnection();
-  const t0 = Date.now();
+// ------------------------------- ESA fetch --------------------------------
+async function fetchPage(page) {
+  const params = { limit: PAGE_SIZE, page };
+  if (WITH_TEXT) params.withText = "yes"; // only valid option, else omit
+  const url = `${KINGUIN_BASE}/v1/products`;
 
   try {
-    const profile = await SyncProfile.findOne({ name: "default" }).lean();
-    const baseFilters = { ...(profile?.filters || {}) };
-    const fields = profile?.fields || [];
-
-    const head = await fetchPage(1, baseFilters);
-    const upstreamTotal = head?.item_count || 0;
-    const pages = Math.ceil(upstreamTotal / PAGE_SIZE) || 0;
-
-    console.log(
-      `[importAll] upstream_total=${upstreamTotal}, pages=${pages}, REQUIRE_PLATFORM=${REQUIRE_PLATFORM}, REQUIRE_GENRES=${REQUIRE_GENRES}`
-    );
-
-    // Counters
-    let fetched = 0,
-      kept = 0;
-    let skipRegion = 0,
-      skipPlatform = 0,
-      skipGenre = 0,
-      skipMissingPlatform = 0,
-      skipMissingGenres = 0;
-    let skipName = 0,
-      skipBannedGenre = 0;
-
-    const processResults = async (results, label) => {
-      if (!Array.isArray(results) || results.length === 0) return;
-
-      fetched += results.length;
-      const ops = [];
-
-      for (const p of results) {
-        // Name rules first
-        const nm = p?.name || "";
-        if (!NAME_REQUIRE_RE.test(nm) || NAME_EXCLUDE_RE.test(nm)) {
-          skipName++;
-          continue;
-        }
-
-        // Regions
-        if (!ALLOWED_REGION_IDS.includes(p.regionId)) {
-          skipRegion++;
-          continue;
-        }
-
-        // Banned genres
-        if (bannedGenrePresent(p.genres)) {
-          skipBannedGenre++;
-          continue;
-        }
-
-        // Platform
-        const hasPlatform = !!p.platform;
-        const platformOk = hasPlatform
-          ? allowedPlatformMatch(p.platform)
-          : !REQUIRE_PLATFORM;
-        if (!hasPlatform && REQUIRE_PLATFORM) {
-          skipMissingPlatform++;
-          continue;
-        }
-        if (hasPlatform && !platformOk) {
-          skipPlatform++;
-          continue;
-        }
-
-        // Genres allow-list
-        const hasGenres = Array.isArray(p.genres) && p.genres.length > 0;
-        const genresOk = hasGenres
-          ? allowedGenreMatch(p.genres)
-          : !REQUIRE_GENRES;
-        if (!hasGenres && REQUIRE_GENRES) {
-          skipMissingGenres++;
-          continue;
-        }
-        if (hasGenres && !genresOk) {
-          skipGenre++;
-          continue;
-        }
-
-        const remote = pickRemote(p, fields);
-        remote.updatedAt = new Date();
-        const derived = computeDerivedFromRaw(p);
-
-        ops.push({
-          updateOne: {
-            filter: { _id: p.kinguinId },
-            update: {
-              $set: {
-                remote,
-                "derived.inStock": derived.inStock,
-                "derived.priceMin": derived.priceMin,
-              },
-              $setOnInsert: { createdAt: new Date() },
-            },
-            upsert: true,
-          },
-        });
-      }
-
-      if (ops.length) await KinguinProduct.bulkWrite(ops, { ordered: false });
-      kept += ops.length;
-
-      console.log(
-        `[importAll] ${label}: fetched=${results.length}, kept_now=${ops.length}, ` +
-          `skipped={name:${skipName}, bannedGenre:${skipBannedGenre}, region:${skipRegion}, ` +
-          `platform:${skipPlatform}, genre:${skipGenre}, missingPlatform:${skipMissingPlatform}, ` +
-          `missingGenres:${skipMissingGenres}}`
-      );
-    };
-
-    await processResults(head?.results || [], "page 1");
-
-    const queue = [];
-    for (let page = 2; page <= pages; page++) queue.push(page);
-
-    let active = 0,
-      done = Math.min(1, pages);
-    await new Promise((resolve, reject) => {
-      const next = () => {
-        if (!queue.length && active === 0) return resolve();
-        while (active < CONCURRENCY && queue.length) {
-          const page = queue.shift();
-          active++;
-          fetchPage(page, baseFilters)
-            .then((data) => processResults(data?.results || [], `page ${page}`))
-            .then(() => {
-              active--;
-              done++;
-              next();
-            })
-            .catch((err) => {
-              active--;
-              reject(err);
-            });
-        }
-      };
-      next();
+    const { data } = await getWithRetry(url, {
+      headers: { "X-Api-Key": KINGUIN_KEY },
+      params,
     });
-
-    const ms = Date.now() - t0;
-    console.log(
-      `[importAll] completed ${done}/${pages} in ${ms}ms; upstream_total=${upstreamTotal}, fetched=${fetched}, kept=${kept}, ` +
-        `skipped={name:${skipName}, bannedGenre:${skipBannedGenre}, region:${skipRegion}, platform:${skipPlatform}, ` +
-        `genre:${skipGenre}, missingPlatform:${skipMissingPlatform}, missingGenres:${skipMissingGenres}}`
-    );
-  } finally {
-    if (openedHere) await mongoose.disconnect();
+    if (!data || !Array.isArray(data.results))
+      throw new Error("Unexpected ESA response shape");
+    return data;
+  } catch (err) {
+    // ESA sometimes rejects withText; retry without it once
+    const detail = err?.response?.data?.detail || "";
+    const prop = err?.response?.data?.propertyPath || "";
+    if (prop === "withText" || /withText/i.test(detail)) {
+      const { data } = await getWithRetry(url, {
+        headers: { "X-Api-Key": KINGUIN_KEY },
+        params: { limit: PAGE_SIZE, page },
+      });
+      if (!data || !Array.isArray(data.results))
+        throw new Error("Unexpected ESA response shape (fallback)");
+      return data;
+    }
+    throw err;
   }
 }
 
-if (require.main === module) {
-  run().catch((err) => {
-    console.error(err);
-    process.exit(1);
-  });
+// ------------------------------ Main runner --------------------------------
+async function runImportAll({ logger = console } = {}) {
+  if (!KINGUIN_KEY) throw new Error("KINGUIN_API_KEY missing");
+  if (!MONGODB_URI) throw new Error("MONGODB_URI missing");
+
+  await mongoose.connect(MONGODB_URI, { dbName: MONGODB_DB, maxPoolSize: 50 });
+  logger.log("DB connected");
+
+  // Head to get item_count
+  const head = await fetchPage(1);
+  const upstreamTotal = Number(head?.item_count || 0);
+  const totalPages = Math.max(1, Math.ceil(upstreamTotal / PAGE_SIZE));
+  logger.log(
+    `[importAll] upstream_total=${upstreamTotal}, pages=${totalPages}, concurrency=${CONCURRENCY}`
+  );
+
+  // Counters
+  let fetched = 0,
+    kept = 0,
+    pagesDone = 0;
+  let skipName = 0,
+    skipRegion = 0,
+    skipPlatform = 0,
+    skipMissingPlatform = 0;
+  let skipMissingGenres = 0,
+    skipGenre = 0,
+    skipBannedGenre = 0,
+    skipNoPrice = 0;
+
+  async function processResults(results, label) {
+    if (!Array.isArray(results) || results.length === 0) return;
+    fetched += results.length;
+
+    const ops = [];
+    for (const p of results) {
+      // ---- STRICT GATES ----
+      // Name
+      const nm = p?.name || "";
+      if (!NAME_REQUIRE_RE.test(nm) || NAME_EXCLUDE_RE.test(nm)) {
+        skipName++;
+        continue;
+      }
+
+      // Region
+      if (!ALLOWED_REGION_IDS.includes(Number(p?.regionId))) {
+        skipRegion++;
+        continue;
+      }
+
+      // Genres (blacklist then allow-list)
+      const genres = Array.isArray(p?.genres) ? p.genres : [];
+      if (!genres.length) {
+        skipMissingGenres++;
+        continue;
+      }
+      if (bannedGenrePresent(genres)) {
+        skipBannedGenre++;
+        continue;
+      }
+      if (!allowedGenreMatch(genres)) {
+        skipGenre++;
+        continue;
+      }
+
+      // Platform required + normalize to canonical
+      const hasPlatform = !!p?.platform;
+      if (!hasPlatform) {
+        skipMissingPlatform++;
+        continue;
+      }
+
+      const platformCanonical = normalizePlatform(p.platform);
+      if (!platformCanonical || !allowedPlatformMatch(platformCanonical)) {
+        skipPlatform++;
+        continue;
+      }
+
+      // Price required
+      const minEur = computeMinEUR(p);
+      if (minEur == null) {
+        skipNoPrice++;
+        continue;
+      }
+
+      // ---- SHAPE & UPSERT ----
+      const derived = computeDerived(p); // uses minEur inside
+      const remote = {
+        name: p.name,
+        description: p.description,
+        images: p.images,
+        price: Number(p.price) || null,
+        qty: Number(p.qty) || 0,
+        offers: Array.isArray(p.offers)
+          ? p.offers.map((o) => ({
+              offerId: o.offerId,
+              price: Number(o.price) || null,
+              availableQty: Number(o.availableQty) || 0,
+              merchantName: o.merchantName || null,
+            }))
+          : [],
+        regionId: Number(p.regionId) || null,
+        tags: Array.isArray(p.tags) ? p.tags : [],
+        platform: p.platform || null, // keep original label
+        genres: genres,
+        updatedAt: p.updatedAt ? new Date(p.updatedAt) : new Date(),
+      };
+
+      ops.push({
+        updateOne: {
+          filter: { _id: Number(p.kinguinId) },
+          update: {
+            $set: {
+              remote,
+              "derived.inStock": derived.inStock,
+              "derived.priceMin": derived.priceMin, // IQD final
+              "derived.platformCanonical": platformCanonical, // canonical for filters
+              "flags.hidden": false,
+            },
+            $setOnInsert: { createdAt: new Date() },
+          },
+          upsert: true,
+        },
+      });
+    }
+
+    if (ops.length) {
+      try {
+        await KinguinProduct.bulkWrite(ops, { ordered: false });
+      } catch (e) {
+        logger.error(`[importAll] bulkWrite error ${label}: ${e.message}`);
+      }
+      kept += ops.length;
+    }
+
+    logger.log(
+      `[importAll] ${label}: fetched=${results.length}, kept_now=${ops.length}, ` +
+        `skipped={name:${skipName}, region:${skipRegion}, missingPlatform:${skipMissingPlatform}, platform:${skipPlatform}, ` +
+        `missingGenres:${skipMissingGenres}, bannedGenre:${skipBannedGenre}, genre:${skipGenre}, noPrice:${skipNoPrice}}`
+    );
+  }
+
+  // Process page 1
+  await processResults(head?.results || [], "page 1");
+
+  // Queue remaining pages with bounded parallelism
+  let nextPage = 2;
+  const workers = Array.from(
+    { length: Math.min(CONCURRENCY, totalPages - 1) },
+    async () => {
+      while (true) {
+        const page = nextPage++;
+        if (page > totalPages) break;
+        const data = await fetchPage(page);
+        await processResults(data?.results || [], `page ${page}`);
+        pagesDone++;
+        if (pagesDone % 10 === 0 || page === totalPages) {
+          logger.log(
+            `[importAll] progress pagesDone=${pagesDone}/${
+              totalPages - 1
+            } kept=${kept}`
+          );
+        }
+      }
+    }
+  );
+
+  await Promise.all(workers);
+
+  logger.log(
+    `[importAll] DONE upstream_total=${upstreamTotal}, fetched=${fetched}, kept=${kept}, ` +
+      `skipped={name:${skipName}, region:${skipRegion}, missingPlatform:${skipMissingPlatform}, platform:${skipPlatform}, ` +
+      `missingGenres:${skipMissingGenres}, bannedGenre:${skipBannedGenre}, genre:${skipGenre}, noPrice:${skipNoPrice}}`
+  );
+
+  await mongoose.disconnect();
+  logger.log("DB disconnected");
+
+  return {
+    processed: fetched,
+    kept,
+    skipped: {
+      name: skipName,
+      region: skipRegion,
+      missingPlatform: skipMissingPlatform,
+      platform: skipPlatform,
+      missingGenres: skipMissingGenres,
+      bannedGenre: skipBannedGenre,
+      genre: skipGenre,
+      noPrice: skipNoPrice,
+    },
+  };
 }
 
-module.exports = { run };
+module.exports = { runImportAll };
+
+// CLI
+if (require.main === module) {
+  runImportAll().then(
+    () => process.exit(0),
+    (err) => {
+      console.error("importAll failed:", err);
+      process.exit(1);
+    }
+  );
+}

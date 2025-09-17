@@ -10,12 +10,47 @@ const appError = require("../utils/appError");
  * Supports: q (text), regionId, tags (comma list), priceFrom/priceTo,
  * sortBy (priceMin|updatedAt|name), sortType (asc|desc), page, limit
  */
+
+function normStr(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/[_\-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+function normalizePlatform(p) {
+  const n = normStr(p);
+  if (!n) return "";
+  if (/(pc.*steam|steam.*pc)/.test(n)) return "pc steam";
+  if (/^(uplay|ubisoft|ubisoft connect)|pc.*(uplay|ubisoft)/.test(n))
+    return "pc ubisoft connect";
+  if (/(origin|ea app)/.test(n)) return "ea app";
+  if (/(battle\.?net|blizzard)/.test(n)) return "pc battle.net";
+  if (/epic/.test(n)) return "pc epic games";
+  if (/(rockstar|social club)/.test(n)) return "pc rockstar games";
+  if (/gog/.test(n)) return "pc gog";
+  if (/mog station/.test(n)) return "pc mog station";
+  if (n === "pc") return "pc";
+  if (/^xbox series (x|s)|xbox series x\|s/.test(n)) return "xbox series x|s";
+  if (/xbox one/.test(n)) return "xbox one";
+  if (/xbox 360/.test(n)) return "xbox 360";
+  return n;
+}
 function buildListQuery(qs) {
   const where = {
     "flags.hidden": { $ne: true },
     "derived.inStock": true,
   };
-
+  if (qs.platform) {
+    const canon = normalizePlatform(qs.platform);
+    if (canon) {
+      // Prefer canonical match
+      where["derived.platformCanonical"] = canon;
+    } else {
+      // Fallback: exact remote label (case-sensitive) if no normalization
+      where["remote.platform"] = qs.platform;
+    }
+  }
   const page = Math.max(1, Number(qs.page) || 1);
   const limit = Math.max(1, Math.min(200, Number(qs.limit) || 24)); // UI page size
 
