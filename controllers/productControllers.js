@@ -3,14 +3,9 @@ const mongoose = require("mongoose");
 const KinguinProduct = require("../models/KinguinProduct"); // local mirror schema
 const catchAsyncErrors = require("../utils/catchAsyncErrors");
 const appError = require("../utils/appError");
+// controllers/localProductsController.js (excerpt)
 
-/**
- * Build Mongo filters for listing visible, sellable products from local DB.
- * Baseline: flags.hidden != true AND derived.inStock == true
- * Supports: q (text), regionId, tags (comma list), priceFrom/priceTo,
- * sortBy (priceMin|updatedAt|name), sortType (asc|desc), page, limit
- */
-
+// --- same normalizer you used in the worker ---
 function normStr(s) {
   return String(s || "")
     .toLowerCase()
@@ -18,14 +13,17 @@ function normStr(s) {
     .replace(/\s+/g, " ")
     .trim();
 }
+
 function normalizePlatform(p) {
   const n = normStr(p);
   if (!n) return "";
+
+  // synonyms + regex catch-alls
   if (/(pc.*steam|steam.*pc)/.test(n)) return "pc steam";
   if (/^(uplay|ubisoft|ubisoft connect)|pc.*(uplay|ubisoft)/.test(n))
     return "pc ubisoft connect";
   if (/(origin|ea app)/.test(n)) return "ea app";
-  if (/(battle\.?net|blizzard)/.test(n)) return "pc battle.net";
+  if (/(battle\.?net|battlenet|blizzard)/.test(n)) return "pc battle.net";
   if (/epic/.test(n)) return "pc epic games";
   if (/(rockstar|social club)/.test(n)) return "pc rockstar games";
   if (/gog/.test(n)) return "pc gog";
@@ -36,27 +34,37 @@ function normalizePlatform(p) {
   if (/xbox 360/.test(n)) return "xbox 360";
   return n;
 }
+
 function buildListQuery(qs) {
   const where = {
     "flags.hidden": { $ne: true },
     "derived.inStock": true,
   };
+
+  const page = Math.max(1, Number(qs.page) || 1);
+  const limit = Math.max(1, Math.min(200, Number(qs.limit) || 24));
+
+  // ✅ Platform: ONLY filter on canonical
   if (qs.platform) {
     const canon = normalizePlatform(qs.platform);
-    if (canon) {
-      // Prefer canonical match
-      where["derived.platformCanonical"] = canon;
-    } else {
-      // Fallback: exact remote label (case-sensitive) if no normalization
-      where["remote.platform"] = qs.platform;
+    if (canon) where["derived.platformCanonical"] = canon;
+  }
+
+  // Region / genres / tags / price
+  if (qs.regionId) where["remote.regionId"] = Number(qs.regionId);
+
+  if (qs.genres) {
+    // support both "genres=Action" and "genres=Action,Adventure"
+    const list = String(qs.genres)
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (list.length === 1) {
+      where["remote.genres"] = list[0];
+    } else if (list.length > 1) {
+      where["remote.genres"] = { $in: list };
     }
   }
-  const page = Math.max(1, Number(qs.page) || 1);
-  const limit = Math.max(1, Math.min(200, Number(qs.limit) || 24)); // UI page size
-
-  if (qs.regionId) where["remote.regionId"] = Number(qs.regionId);
-  if (qs.platform) where["remote.platform"] = qs.platform;
-  if (qs.genres) where["remote.genres"] = qs.genres;
 
   if (qs.tags) {
     const list = String(qs.tags)
@@ -81,15 +89,14 @@ function buildListQuery(qs) {
   const sortBy = ["priceMin", "updatedAt", "name"].includes(qs.sortBy)
     ? qs.sortBy
     : "priceMin";
-  const sortType =
-    String(qs.sortType || "asc").toLowerCase() === "desc" ? -1 : 1;
+  const dir = String(qs.sortType || "asc").toLowerCase() === "desc" ? -1 : 1;
 
   const sort =
     sortBy === "name"
-      ? { "overrides.name": sortType, "remote.name": sortType }
+      ? { "overrides.name": dir, "remote.name": dir }
       : sortBy === "updatedAt"
-      ? { updatedAt: sortType } // local doc timestamps
-      : { "derived.priceMin": sortType }; // default
+      ? { updatedAt: dir }
+      : { "derived.priceMin": dir };
 
   return { where, page, limit, sort };
 }
