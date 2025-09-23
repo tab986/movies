@@ -89,8 +89,7 @@ async function createWaylLink(referenceId, amount, productName, image) {
         image,
       },
     ],
-    webhookUrl:
-      "https://1qnqbnfl-3000.inc1.devtunnels.ms/api/v1/orders/wayl-callback", //process.env.WAYL_WEBHOOK_URL, // e.g. https://yourdomain.com/api/v1/orders/wayl-callback
+    webhookUrl: process.env.WAYL_r, //process.env.WAYL_WEBHOOK_URL, // e.g. https://yourdomain.com/api/v1/orders/wayl-callback
     redirectionUrl: "https://google.com",
     webhookSecret: "1234567890", //process.env.WAYL_REDIRECT_URL, // e.g. https://yourdomain.com/order-success
     currency: "IQD",
