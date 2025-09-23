@@ -159,7 +159,7 @@ exports.getProduct = catchAsyncErrors(async (req, res, next) => {
       inStock: p.derived?.inStock,
       regionId: p.remote?.regionId,
       tags: p.remote?.tags,
-      remote: p.remote, // keep for admin/debug
+      // remote: p.remote, // keep for admin/debug
     },
   });
 });
@@ -179,7 +179,8 @@ exports.patchOverrides = catchAsyncErrors(async (req, res, next) => {
     allowed["overrides.description"] = String(req.body.description);
   if (req.body?.images !== undefined)
     allowed["overrides.images"] = req.body.images;
-
+  if (req.body?.coverImage !== undefined)
+    allowed["overrides.images"] = req.body.images;
   if (!Object.keys(allowed).length)
     return next(new appError("No override fields provided", 400));
 

@@ -1,7 +1,7 @@
 const exp = require("express");
 const productsControllers = require("../controllers/productControllers");
 const authControllers = require("../controllers/authControllers");
-const ordersControllers = require("../controllers/orderControllers");
+const ordersControllers = require("../controllers/orderController");
 const statesController = require("../controllers/statesController");
 const adsControllers = require("../controllers/adsController");
 
@@ -80,10 +80,7 @@ router.get("/products", productsControllers.listProducts);
 router.get("/products/:kinguinId", productsControllers.getProduct);
 
 //orders
-router
-  .route("/orders")
-  .get(ordersControllers.getOrders)
-  .post(ordersControllers.createOrder);
+router.route("/orders").get(ordersControllers.getOrders);
 router
   .route("/orders/:orderId")
   .get(ordersControllers.getOrder)
@@ -96,7 +93,7 @@ router.get("/user/:userId/details", userProfile.getMyProfileDetails);
 
 router.delete("/user/:userId", userProfile.adminDeleteUser);
 
-router.route("/getTotalCustomers").get(statesController.getTotalCustomers);
-router.route("/getTotalRevenue").get(statesController.getTotalRevenue);
+// router.route("/getTotalCustomers").get(statesController.getTotalCustomers);
+// router.route("/getTotalRevenue").get(statesController.getTotalRevenue);
 
 module.exports = router;

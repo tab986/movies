@@ -1,4 +1,6 @@
 const mongoose = require("mongoose");
+const bcrypt = require("bcryptjs");
+const crypto = require("crypto");
 
 const governorates = [
   "بغداد",
@@ -24,7 +26,11 @@ const governorates = [
 const usersSchema = new mongoose.Schema(
   {
     fullName: String,
-    phone: { type: String, index: true, sparse: true },
+    phone: {
+      type: String,
+      required: [true, "insert the phone+number"],
+      unique: true,
+    },
     governorate: { type: String, enum: governorates },
     city: String,
     address: String,
@@ -108,6 +114,7 @@ usersSchema.methods.resetPasswordToken = function () {
 
   return resetToken;
 };
+usersSchema.index({ phone: 1 }, { unique: true });
 
 const Users = mongoose.model("Users", usersSchema);
 

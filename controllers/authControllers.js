@@ -26,7 +26,7 @@ exports.signup = (role = "user") =>
       }
     }
 
-    if (!req.body.code === 111111) {
+    if (req.body.code !== "111111") {
       if (role !== "admin") {
         const twilio = require("twilio")(
           process.env.TWILIO_ACCOUNT_SID,
@@ -48,7 +48,7 @@ exports.signup = (role = "user") =>
 
     const user = await Users.create({
       fullName: req.body.fullName,
-      phoneNumber: req.body.phoneNumber, // ✅ matches schema
+      phone: req.body.phone, // ✅ matches schema
       governorate: req.body.governorate,
       city: req.body.city,
       address: req.body.address,
