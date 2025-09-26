@@ -32,9 +32,14 @@ const KinguinProductSchema = new mongoose.Schema(
       regionId: Number,
       tags: [String],
       updatedAt: Date,
-      // Platform (e.g. 'PC Steam', 'Xbox One'). Included to allow platform filtering.
+      activationDetails: String,
+      videos: mongoose.Schema.Types.Mixed,
+      languages: [String],
+      systemRequirements: mongoose.Schema.Types.Mixed,
+      originalName: String,
+      metacriticScore: Number,
+      videos: mongoose.Schema.Types.Mixed,
       platform: String,
-      // Genres array (e.g. ['Action','RPG']). Included to allow genre filtering.
       genres: [String],
     },
 

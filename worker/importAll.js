@@ -433,6 +433,14 @@ async function runImportAll({ logger = console } = {}) {
         tags: Array.isArray(p.tags) ? p.tags : [],
         platform: p.platform || null, // keep original label
         genres: genres,
+        activationDetails: p.activationDetails || null,
+        languages: Array.isArray(p.languages) ? p.languages : [],
+        systemRequirements: p.systemRequirements || null,
+        originalName: p.originalName || null,
+        metacriticScore: Number.isFinite(p.metacriticScore)
+          ? Number(p.metacriticScore)
+          : null,
+        videos: p.videos || null,
         updatedAt: p.updatedAt ? new Date(p.updatedAt) : new Date(),
       };
 
