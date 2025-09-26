@@ -80,6 +80,13 @@ function buildListQuery(qs) {
     if (qs.priceTo) where["derived.priceMin"].$lte = Number(qs.priceTo);
   }
 
+  if (qs.metacriticScoreFrom || qs.metacriticScoreTo) {
+    where["derived.priceMin"] = {};
+    if (qs.metacriticScoreFrom)
+      where["derived.priceMin"].$gte = Number(qs.metacriticScoreFrom);
+    if (qs.metacriticScoreTo)
+      where["derived.priceMin"].$lte = Number(qs.metacriticScoreTo);
+  }
   if (qs.q) {
     const rx = new RegExp(String(qs.q), "i");
     where.$or = [{ "overrides.name": rx }, { "remote.name": rx }];
