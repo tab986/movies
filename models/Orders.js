@@ -25,8 +25,7 @@ const orderSchema = new mongoose.Schema(
       enum: ["pending", "paid", "failed"],
       default: "pending",
     },
-    kinguinOrderId: { type: Number }, // from Kinguin placeOrder
-    kinguinDispatchId: { type: Number }, // from Kinguin dispatch
+    kinguinOrderId: { type: String }, // from Kinguin placeOrder
     key: String, // filled after dispatch
     status: {
       type: String,

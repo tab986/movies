@@ -25,8 +25,8 @@ const KINGUIN_API_BASE =
 const KINGUIN_API_KEY = process.env.KINGUIN_API_KEY;
 
 const ESA_BALANCE_URL = `${KINGUIN_API_BASE}/v1/balance`;
-const ESA_ORDER_URL = `${KINGUIN_API_BASE}/v2/order`;
-const ESA_ONEORDER_URL = `${KINGUIN_API_BASE}/v1/order`;
+const ESA_ORDER_URL = `${KINGUIN_API_BASE}/v1/order`;
+const ESA_ONEORDER_URL = `${KINGUIN_API_BASE}/v2/order`;
 
 const ESA_HEADERS = {
   "Content-Type": "application/json",
@@ -89,10 +89,8 @@ async function createWaylLink(referenceId, amount, productName, image) {
         image,
       },
     ],
-    webhookUrl: process.env.WAYL_r, //process.env.WAYL_WEBHOOK_URL, // e.g. https://yourdomain.com/api/v1/orders/wayl-callback
-    redirectionUrl: "https://google.com",
-    webhookSecret: "1234567890", //process.env.WAYL_REDIRECT_URL, // e.g. https://yourdomain.com/order-success
-    currency: "IQD",
+    webhookUrl: process.env.WAYL_r,
+    webhookSecret: "1234567890",
   };
 
   try {
@@ -227,7 +225,7 @@ exports.waylCallback = async (req, res, next) => {
       const kinguinPayload = {
         products: [
           {
-            productId: String(product._id),
+            kinguinId: Number(order.product),
             qty: Number(1),
             price: product.remote.price,
           },
@@ -239,6 +237,7 @@ exports.waylCallback = async (req, res, next) => {
       let kinguinOrderResponse;
 
       kinguinOrderResponse = await kinguinPlaceOrderV2(kinguinPayload);
+      console.log("gg");
 
       order.kinguinOrderId = kinguinOrderResponse.orderId;
 
@@ -273,7 +272,7 @@ exports.myOrders = async (req, res) => {
 // Get a specific order (with keys if completed)
 exports.getOrder = async (req, res) => {
   let order = await Order.findOne({
-    _id: req.params.id,
+    kinguinOrderId: req.params.id,
     user: req.user._id,
   }).populate("product");
 
@@ -281,18 +280,22 @@ exports.getOrder = async (req, res) => {
     return res.status(404).json({ status: "fail", message: "Order not found" });
 
   try {
-    const r = await axios.get(`${ESA_ONEORDER_URL}/${req.params.id}`, {
+    const r = await axios.get(`${ESA_ONEORDER_URL}/${req.params.id}/keys`, {
       headers: ESA_HEADERS,
       timeout: 20000,
     });
+    console.log(r.data);
 
-    let key = r.data.serial;
+    let key = r.data[0].serial;
     if (key) {
       if (Array.isArray(key)) key = key[0];
-      order = await Order.findByIdAndUpdate(req.params.id, {
-        key: key,
-        status: "completed",
-      });
+      order = await Order.findOneAndUpdate(
+        { kinguinOrderId: req.params.id },
+        {
+          key: key,
+          status: "completed",
+        }
+      );
     }
   } catch (err) {
     const status = err.response?.status;
