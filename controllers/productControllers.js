@@ -127,6 +127,7 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
     updatedAt: p.remote?.updatedAt,
     genres: p.remote?.genres,
     description: p.overrides?.description || p.remote?.description,
+    remote: p.remote, // keep for admin/debug
   }));
 
   res.status(200).json({
