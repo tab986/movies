@@ -125,6 +125,12 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
     platform: p.remote?.platform,
     qty: p.remote?.qty,
     updatedAt: p.remote?.updatedAt,
+    activationDetails: p.remote?.activationDetails,
+    videos: p.remote?.videos,
+    languages: p.remote?.languages,
+    systemRequirements: p.remote?.systemRequirements,
+    originalName: p.remote?.originalName,
+    metacriticScore: p.remote?.metacriticScore,
     genres: p.remote?.genres,
     description: p.overrides?.description || p.remote?.description,
     remote: p.remote, // keep for admin/debug
