@@ -12,12 +12,8 @@ const WAYL_BASE = process.env.WAYL_BASE || "https://api.thewayl.com/api/v1";
 
 // Helper to verify Wayl webhook signature
 function verifyWaylSignature(req) {
-  const signature = req.headers["x-wayl-signature"];
-  const body = JSON.stringify(req.body);
-  const expected = crypto
-    .createHmac("sha256", process.env.WAYL_SECRET)
-    .update(body)
-    .digest("hex");
+  const signature = req.headers["x-wayl-signature-256"];
+  const expected = crypto.createHmac("sha256", process.env.WAYL_SECRET);
   return signature === expected;
 }
 const KINGUIN_API_BASE =
@@ -80,18 +76,18 @@ async function kinguinPlaceOrderV2(payload) {
 async function createWaylLink(referenceId, amount, productName, image) {
   const payload = {
     referenceId,
-    total: Number(1000), // integer in IQD
+    total: Number(amount),
     lineItem: [
       {
         label: productName,
         type: "increase",
-        amount: 1000,
+        amount: Number(amount),
         image,
       },
     ],
-    webhookUrl: process.env.WAYL_r, //process.env.WAYL_WEBHOOK_URL, // e.g. https://yourdomain.com/api/v1/orders/wayl-callback
+    webhookUrl: process.env.WAYL_r,
     redirectionUrl: "https://google.com",
-    webhookSecret: "1234567890", //process.env.WAYL_REDIRECT_URL, // e.g. https://yourdomain.com/order-success
+    webhookSecret: process.env.WAYL_SECRET,
     currency: "IQD",
   };
 
@@ -196,16 +192,15 @@ exports.checkout = async (req, res, next) => {
 // Wayl payment webhook
 exports.waylCallback = async (req, res, next) => {
   try {
-    // Verify signature
-    // if (!verifyWaylSignature(req)) {
-    //   return res
-    //     .status(400)
-    //     .json({ status: "fail", message: "Invalid signature" });
-    // }
+    if (!verifyWaylSignature(req)) {
+      return res
+        .status(400)
+        .json({ status: "fail", message: "Invalid signature" });
+    }
 
     console.log(req.body);
 
-    const { referenceId, status } = req.body;
+    const { referenceId } = req.body;
     const order = await Order.findOne({ waylReference: referenceId });
     console.log(order);
     if (!order)
@@ -213,43 +208,32 @@ exports.waylCallback = async (req, res, next) => {
         .status(404)
         .json({ status: "fail", message: "Order not found" });
 
-    if (1) {
-      // Mark as paid
-      order.waylPaymentStatus = "paid";
-      order.status = "wayle";
-      await order.save();
-      // Trigger Kinguin order & dispatch (could be in background)
-      const product = await KinguinProduct.findById(order.product);
-      // const { orderId, dispatchId, keys } = await placeAndDispatch(
-      //   product._id,
-      //   1
-      // );
-      const kinguinPayload = {
-        products: [
-          {
-            kinguinId: Number(order.product),
-            qty: Number(1),
-            price: product.remote.price,
-          },
-        ],
-        orderExternalId: String(order._id),
-      };
+    order.waylPaymentStatus = "paid";
+    order.status = "wayle";
+    await order.save();
+    const product = await KinguinProduct.findById(order.product);
 
-      // 5) Place order (only check balance if mode === "own")
-      let kinguinOrderResponse;
+    const kinguinPayload = {
+      products: [
+        {
+          kinguinId: Number(order.product),
+          qty: Number(1),
+          price: product.remote.price,
+        },
+      ],
+      orderExternalId: String(order._id),
+    };
 
-      kinguinOrderResponse = await kinguinPlaceOrderV2(kinguinPayload);
-      console.log("gg");
+    // 5) Place order (only check balance if mode === "own")
+    let kinguinOrderResponse;
 
-      order.kinguinOrderId = kinguinOrderResponse.orderId;
+    kinguinOrderResponse = await kinguinPlaceOrderV2(kinguinPayload);
 
-      order.status = "kingwin";
-      await order.save();
-    } else {
-      order.waylPaymentStatus = "cancelled";
-      order.status = "cancelled";
-      await order.save();
-    }
+    order.kinguinOrderId = kinguinOrderResponse.orderId;
+
+    order.status = "kingwin";
+    await order.save();
+
     res.json({ status: "success" });
   } catch (err) {
     next(err);
@@ -280,30 +264,31 @@ exports.getOrder = async (req, res) => {
 
   if (!order)
     return res.status(404).json({ status: "fail", message: "Order not found" });
+  if (!order.key) {
+    try {
+      const r = await axios.get(`${ESA_ONEORDER_URL}/${req.params.id}/keys`, {
+        headers: ESA_HEADERS,
+        timeout: 20000,
+      });
 
-  try {
-    const r = await axios.get(`${ESA_ONEORDER_URL}/${req.params.id}/keys`, {
-      headers: ESA_HEADERS,
-      timeout: 20000,
-    });
-    console.log(r.data);
-
-    let key = r.data[0].serial;
-    if (key) {
-      if (Array.isArray(key)) key = key[0];
-      order = await Order.findOneAndUpdate(
-        { kinguinOrderId: req.params.id },
-        {
-          key: key,
-          status: "completed",
-        }
-      );
+      let key = r.data[0].serial;
+      if (key) {
+        if (Array.isArray(key)) key = key[0];
+        order = await Order.findOneAndUpdate(
+          { kinguinOrderId: req.params.id },
+          {
+            key: key,
+            status: "completed",
+          }
+        );
+      }
+    } catch (err) {
+      const status = err.response?.status;
+      const data = err.response?.data;
+      console.error("Kinguin one order error:", status, data);
     }
-  } catch (err) {
-    const status = err.response?.status;
-    const data = err.response?.data;
-    console.error("Kinguin one order error:", status, data);
   }
+
   res.json({ status: "success", data: order });
 };
 
