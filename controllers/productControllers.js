@@ -52,6 +52,7 @@ function buildListQuery(qs) {
 
   // Region / genres / tags / price
   if (qs.regionId) where["remote.regionId"] = Number(qs.regionId);
+  if (qs.releaseDate) where["remote.releaseDate"] = Number(qs.releaseDate);
 
   if (qs.genres) {
     // support both "genres=Action" and "genres=Action,Adventure"
@@ -139,6 +140,7 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
     originalName: p.remote?.originalName,
     metacriticScore: p.remote?.metacriticScore,
     genres: p.remote?.genres,
+    releaseDate: p.remote?.releaseDate,
     description: p.overrides?.description || p.remote?.description,
     remote: p.remote, // keep for admin/debug
   }));

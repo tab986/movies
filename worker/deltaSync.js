@@ -426,6 +426,16 @@ async function runOnce({ overlapMinutes = 2 } = {}) {
           platform: p.platform || null, // keep original label
           genres,
           updatedAt: p.updatedAt ? new Date(p.updatedAt) : new Date(),
+          activationDetails: p.activationDetails || null,
+          videos: p.videos || null,
+          languages: Array.isArray(p.languages) ? p.languages : [],
+          systemRequirements: p.systemRequirements || null,
+          originalName: p.originalName || null,
+
+          releaseDate: Number(p.releaseDate) || null,
+          metacriticScore: Number.isFinite(p.metacriticScore)
+            ? Number(p.metacriticScore)
+            : null,
         };
 
         ops.push({
