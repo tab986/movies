@@ -512,9 +512,6 @@ async function runImportAll({ logger = console } = {}) {
       `missingGenres:${skipMissingGenres}, bannedGenre:${skipBannedGenre}, genre:${skipGenre}, noPrice:${skipNoPrice}}`
   );
 
-  await mongoose.disconnect();
-  logger.log("DB disconnected");
-
   return {
     processed: fetched,
     kept,
