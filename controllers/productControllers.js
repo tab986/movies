@@ -67,6 +67,31 @@ function buildListQuery(qs) {
     // exact match
     where[releaseField] = String(qs.releaseDate).slice(0, 10);
   }
+  // Publishers (any-of)
+  if (qs.publishers) {
+    const list = String(qs.publishers)
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (list.length === 1) {
+      where["remote.publishers"] = list[0];
+    } else if (list.length > 1) {
+      where["remote.publishers"] = { $in: list };
+    }
+  }
+
+  // Developers (any-of)
+  if (qs.developers) {
+    const list = String(qs.developers)
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (list.length === 1) {
+      where["remote.developers"] = list[0];
+    } else if (list.length > 1) {
+      where["remote.developers"] = { $in: list };
+    }
+  }
 
   // Genres
   if (qs.genres) {
@@ -177,6 +202,8 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
     originalName: p.remote?.originalName,
     metacriticScore: p.remote?.metacriticScore,
     genres: p.remote?.genres,
+    publishers: p.remote?.publishers,
+    developers: p.remote?.developers,
     releaseDate: p.remote?.releaseDate,
     description: p.overrides?.description || p.remote?.description,
     remote: p.remote, // keep for admin/debug
@@ -211,6 +238,19 @@ exports.getProduct = catchAsyncErrors(async (req, res, next) => {
       priceMin: p.derived?.priceMin,
       inStock: p.derived?.inStock,
       regionId: p.remote?.regionId,
+      platform: p.remote?.platform,
+      qty: p.remote?.qty,
+      updatedAt: p.remote?.updatedAt,
+      activationDetails: p.remote?.activationDetails,
+      videos: p.remote?.videos,
+      languages: p.remote?.languages,
+      systemRequirements: p.remote?.systemRequirements,
+      originalName: p.remote?.originalName,
+      metacriticScore: p.remote?.metacriticScore,
+      genres: p.remote?.genres,
+      publishers: p.remote?.publishers,
+      developers: p.remote?.developers,
+      releaseDate: p.remote?.releaseDate,
       tags: p.remote?.tags,
       // remote: p.remote, // keep for admin/debug
     },

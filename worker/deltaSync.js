@@ -432,6 +432,9 @@ async function runOnce({ overlapMinutes = 2 } = {}) {
           systemRequirements: p.systemRequirements || null,
           originalName: p.originalName || null,
 
+          publishers: Array.isArray(p.publishers) ? p.publishers : [],
+          developers: Array.isArray(p.developers) ? p.developers : [],
+
           releaseDate: p.releaseDate || null,
           metacriticScore: Number.isFinite(p.metacriticScore)
             ? Number(p.metacriticScore)

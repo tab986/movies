@@ -438,6 +438,8 @@ async function runImportAll({ logger = console } = {}) {
         systemRequirements: p.systemRequirements || null,
         originalName: p.originalName || null,
         releaseDate: p.releaseDate || null,
+        publishers: Array.isArray(p.publishers) ? p.publishers : [],
+        developers: Array.isArray(p.developers) ? p.developers : [],
         metacriticScore: Number.isFinite(p.metacriticScore)
           ? Number(p.metacriticScore)
           : null,
