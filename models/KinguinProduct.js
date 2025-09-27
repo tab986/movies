@@ -38,7 +38,7 @@ const KinguinProductSchema = new mongoose.Schema(
       systemRequirements: mongoose.Schema.Types.Mixed,
       originalName: String,
       metacriticScore: Number,
-      releaseDate: Number,
+      releaseDate: String,
       platform: String,
       genres: [String],
     },

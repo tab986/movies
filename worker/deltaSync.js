@@ -432,7 +432,7 @@ async function runOnce({ overlapMinutes = 2 } = {}) {
           systemRequirements: p.systemRequirements || null,
           originalName: p.originalName || null,
 
-          releaseDate: Number(p.releaseDate) || null,
+          releaseDate: p.releaseDate || null,
           metacriticScore: Number.isFinite(p.metacriticScore)
             ? Number(p.metacriticScore)
             : null,
