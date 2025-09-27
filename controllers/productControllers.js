@@ -44,29 +44,41 @@ function buildListQuery(qs) {
   const page = Math.max(1, Number(qs.page) || 1);
   const limit = Math.max(1, Math.min(200, Number(qs.limit) || 24));
 
-  // ✅ Platform: ONLY filter on canonical
+  // Platform (canonical)
   if (qs.platform) {
     const canon = normalizePlatform(qs.platform);
     if (canon) where["derived.platformCanonical"] = canon;
   }
 
-  // Region / genres / tags / price
+  // Region
   if (qs.regionId) where["remote.regionId"] = Number(qs.regionId);
-  if (qs.releaseDate) where["remote.releaseDate"] = Number(qs.releaseDate);
 
+  // -------- Release date (stored as "YYYY-MM-DD" string) --------
+  // If you store as Date in Mongo, swap the assignments to new Date("...T00:00:00Z")
+  const releaseField = "remote.releaseDate";
+
+  if (qs.releaseDateFrom || qs.releaseDateTo) {
+    const range = {};
+    if (qs.releaseDateFrom)
+      range.$gte = String(qs.releaseDateFrom).slice(0, 10); // or new Date(`${qs.releaseDateFrom}T00:00:00Z`)
+    if (qs.releaseDateTo) range.$lte = String(qs.releaseDateTo).slice(0, 10); // or new Date(`${qs.releaseDateTo}T23:59:59.999Z`)
+    where[releaseField] = range;
+  } else if (qs.releaseDate) {
+    // exact match
+    where[releaseField] = String(qs.releaseDate).slice(0, 10);
+  }
+
+  // Genres
   if (qs.genres) {
-    // support both "genres=Action" and "genres=Action,Adventure"
     const list = String(qs.genres)
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
-    if (list.length === 1) {
-      where["remote.genres"] = list[0];
-    } else if (list.length > 1) {
-      where["remote.genres"] = { $in: list };
-    }
+    if (list.length === 1) where["remote.genres"] = list[0];
+    else if (list.length > 1) where["remote.genres"] = { $in: list };
   }
 
+  // Tags (must include all)
   if (qs.tags) {
     const list = String(qs.tags)
       .split(",")
@@ -75,36 +87,61 @@ function buildListQuery(qs) {
     if (list.length) where["remote.tags"] = { $all: list };
   }
 
+  // Price range
   if (qs.priceFrom || qs.priceTo) {
-    where["derived.priceMin"] = {};
-    if (qs.priceFrom) where["derived.priceMin"].$gte = Number(qs.priceFrom);
-    if (qs.priceTo) where["derived.priceMin"].$lte = Number(qs.priceTo);
+    const range = {};
+    if (qs.priceFrom) range.$gte = Number(qs.priceFrom);
+    if (qs.priceTo) range.$lte = Number(qs.priceTo);
+    where["derived.priceMin"] = range;
   }
 
+  // -------- Metacritic score range --------
+  // Assuming stored at remote.metacriticScore (change path if different)
   if (qs.metacriticScoreFrom || qs.metacriticScoreTo) {
-    where["derived.priceMin"] = {};
-    if (qs.metacriticScoreFrom)
-      where["derived.priceMin"].$gte = Number(qs.metacriticScoreFrom);
-    if (qs.metacriticScoreTo)
-      where["derived.priceMin"].$lte = Number(qs.metacriticScoreTo);
+    const range = {};
+    if (qs.metacriticScoreFrom) range.$gte = Number(qs.metacriticScoreFrom);
+    if (qs.metacriticScoreTo) range.$lte = Number(qs.metacriticScoreTo);
+    where["remote.metacriticScore"] = range;
+  } else if (qs.metacriticScore) {
+    where["remote.metacriticScore"] = Number(qs.metacriticScore);
   }
+
+  // Search
   if (qs.q) {
     const rx = new RegExp(String(qs.q), "i");
     where.$or = [{ "overrides.name": rx }, { "remote.name": rx }];
   }
 
-  // Sorting
-  const sortBy = ["priceMin", "updatedAt", "name"].includes(qs.sortBy)
+  // -------- Sorting --------
+  const sortFieldMap = {
+    priceMin: "derived.priceMin",
+    updatedAt: "updatedAt",
+    name: ["overrides.name", "remote.name"],
+    releaseDate: releaseField,
+    metacriticScore: "remote.metacriticScore",
+  };
+
+  const sortByKey = [
+    "priceMin",
+    "updatedAt",
+    "name",
+    "releaseDate",
+    "metacriticScore",
+  ].includes(qs.sortBy)
     ? qs.sortBy
     : "priceMin";
+
   const dir = String(qs.sortType || "asc").toLowerCase() === "desc" ? -1 : 1;
 
-  const sort =
-    sortBy === "name"
-      ? { "overrides.name": dir, "remote.name": dir }
-      : sortBy === "updatedAt"
-      ? { updatedAt: dir }
-      : { "derived.priceMin": dir };
+  let sort;
+  if (sortByKey === "name") {
+    sort = { "overrides.name": dir, "remote.name": dir };
+  } else {
+    const field = sortFieldMap[sortByKey];
+    sort = Array.isArray(field)
+      ? { [field[0]]: dir, [field[1]]: dir }
+      : { [field]: dir };
+  }
 
   return { where, page, limit, sort };
 }
