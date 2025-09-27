@@ -243,6 +243,7 @@ exports.waylCallback = async (req, res, next) => {
 // List current user's orders
 exports.myOrders = async (req, res) => {
   const orders = await Order.find({ user: req.user._id })
+    .populate("product")
     .sort("-createdAt")
     .lean();
   const summary = orders.map((o) => ({
