@@ -56,17 +56,21 @@ function buildListQuery(qs) {
   // -------- Release date (stored as "YYYY-MM-DD" string) --------
   // If you store as Date in Mongo, swap the assignments to new Date("...T00:00:00Z")
   const releaseField = "remote.releaseDate";
+  const ymd = (v) => String(v).slice(0, 10); // if you're storing as "YYYY-MM-DD" strings
 
-  if (qs.releaseDateFrom || qs.releaseDateTo) {
-    const range = {};
-    if (qs.releaseDateFrom)
-      range.$gte = String(qs.releaseDateFrom).slice(0, 10); // or new Date(`${qs.releaseDateFrom}T00:00:00Z`)
-    if (qs.releaseDateTo) range.$lte = String(qs.releaseDateTo).slice(0, 10); // or new Date(`${qs.releaseDateTo}T23:59:59.999Z`)
-    where[releaseField] = range;
-  } else if (qs.releaseDate) {
-    // exact match
-    where[releaseField] = String(qs.releaseDate).slice(0, 10);
+  if (qs.releaseDateFrom || qs.releaseDateTo || qs.releaseDate) {
+    const cond = { $exists: true, $ne: null }; // exclude missing & null
+
+    if (qs.releaseDate) {
+      cond.$eq = ymd(qs.releaseDate); // exact day
+    } else {
+      if (qs.releaseDateFrom) cond.$gte = ymd(qs.releaseDateFrom);
+      if (qs.releaseDateTo) cond.$lte = ymd(qs.releaseDateTo);
+    }
+
+    where[releaseField] = cond;
   }
+
   // Publishers (any-of)
   if (qs.publishers) {
     const list = String(qs.publishers)
