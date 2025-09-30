@@ -408,7 +408,7 @@ async function runImportAll({ logger = console } = {}) {
 
       // Price required
       const minEur = computeMinEUR(p);
-      if (minEur == null) {
+      if (minEur == null || minEur >= 130) {
         skipNoPrice++;
         continue;
       }
