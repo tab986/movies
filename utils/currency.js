@@ -1,110 +1,123 @@
 // utils/currency.js
 const axios = require("axios");
 
-// simple in-memory cache for FX rates
-const fxCache = {
-  // key: base->symbols (e.g., "IQD->USD,EUR"), value: { ts, rates }
-};
-
+// --- caches ---
+const fxCache = {}; // "IQD->EUR" -> { ts, rate }
+const ccCache = {}; // "NL" -> { ts, code: "EUR" }
 const ONE_HOUR = 60 * 60 * 1000;
+const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
 
-// Best-effort client IP extraction
-function getClientIp(req) {
-  const fwd = req.headers["x-forwarded-for"];
-  if (typeof fwd === "string" && fwd.length) {
-    // may contain "client, proxy1, proxy2"
-    return fwd.split(",")[0].trim();
-  }
+// pick client IP (works for Postman/Chrome behind proxies)
+function pickClientIp(req) {
+  const forced = (req.query?.ip || req.headers["x-debug-ip"] || "")
+    .toString()
+    .trim();
+  if (forced) return forced;
+  const xff = (req.headers["x-forwarded-for"] || "").toString();
+  if (xff) return xff.split(",")[0].trim();
   return (
-    req.connection?.remoteAddress || req.socket?.remoteAddress || req.ip || null
+    req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || ""
   );
 }
 
-// Map some edge-case countries to a specific currency if provider is vague
-function normalizeCurrency(countryCode, currencyCode) {
-  if (!currencyCode) return null;
-  // Example overrides if needed:
-  // if (countryCode === "TR") return "TRY";
-  // if (countryCode === "AE") return "AED";
-  return currencyCode.toUpperCase();
-}
-
-// Fetch country + currency from IP (ipwho.is is generous & no key needed)
-async function geolocateCurrencyByIp(ip) {
+// 1) Geo: IP -> { countryCode, currency? } using ipwho.is
+async function geolocateByIp(ip) {
   try {
-    if (
+    const privateIP =
       !ip ||
       ip === "::1" ||
       ip.startsWith("127.") ||
       ip.startsWith("10.") ||
-      ip.startsWith("192.168.")
-    ) {
-      return { countryCode: "IQ", currency: "IQD" }; // local/dev -> default to IQD
-    }
+      ip.startsWith("192.168.");
+    if (privateIP) return { countryCode: "IQ", currency: "IQD" };
+
     const { data } = await axios.get(
-      `https://ipwho.is/${encodeURIComponent(ip)}?fields=country_code,currency`
+      `https://ipwho.is/${encodeURIComponent(
+        ip
+      )}?fields=success,country_code,currency`,
+      { timeout: 5000 }
     );
-    const countryCode = data?.country_code || "IQ";
-    const rawCurrency = data?.currency?.code || "IQD";
+    if (data?.success === false) return { countryCode: "IQ", currency: "IQD" };
+
     return {
-      countryCode,
-      currency: normalizeCurrency(countryCode, rawCurrency) || "IQD",
+      countryCode: data?.country_code || "IQ",
+      currency: (data?.currency?.code || "").toUpperCase() || null, // may be missing
     };
   } catch {
-    return { countryCode: "IQ", currency: "IQD" }; // safe fallback
+    return { countryCode: "IQ", currency: "IQD" };
   }
 }
 
-// Fetch FX rate IQD -> target with cache
+// 2) Country -> Currency via REST Countries (cached)
+async function currencyForCountry(countryCode) {
+  const cc = String(countryCode || "").toUpperCase();
+  if (!cc) return null;
+
+  const cached = ccCache[cc];
+  if (cached && Date.now() - cached.ts < SEVEN_DAYS) return cached.code;
+
+  try {
+    // returns: { currencies: { EUR: {...}, ... } }
+    const { data } = await axios.get(
+      `https://restcountries.com/v3.1/alpha/${encodeURIComponent(
+        cc
+      )}?fields=currencies`,
+      { timeout: 5000 }
+    );
+    const currencies = data?.[0]?.currencies || data?.currencies || null;
+    const code = currencies ? Object.keys(currencies)[0] : null; // pick first if multiple
+    if (code) ccCache[cc] = { ts: Date.now(), code };
+    return code || null;
+  } catch {
+    return null;
+  }
+}
+
+// 3) FX IQD -> target (cached)
+function fxGet(key) {
+  const e = fxCache[key];
+  return e && Date.now() - e.ts < ONE_HOUR ? e.rate : null;
+}
+function fxSet(key, rate) {
+  fxCache[key] = { ts: Date.now(), rate };
+}
 async function getRateIQDTo(targetCurrency) {
-  const base = "IQD";
-  const symbols = targetCurrency.toUpperCase();
-  const key = `${base}->${symbols}`;
+  const sym = targetCurrency.toUpperCase();
+  const key = `IQD->${sym}`;
+  const cached = fxGet(key);
+  if (cached != null) return cached;
 
-  const cached = fxCache[key];
-  const now = Date.now();
-  if (cached && now - cached.ts < ONE_HOUR) {
-    return cached.rates[symbols];
-  }
-
-  const url = `https://api.exchangerate.host/latest?base=${base}&symbols=${symbols}`;
-  const { data } = await axios.get(url, { timeout: 8000 });
-  const rate = data?.rates?.[symbols];
+  const { data } = await axios.get(
+    `https://api.exchangerate.host/latest?base=IQD&symbols=${sym}`,
+    { timeout: 8000 }
+  );
+  const rate = data?.rates?.[sym];
   if (typeof rate !== "number" || !isFinite(rate)) {
-    throw new Error(`No FX rate for ${base}->${symbols}`);
+    throw new Error(`No FX rate for IQD->${sym}`);
   }
-  fxCache[key] = { ts: now, rates: data.rates };
+  fxSet(key, rate);
   return rate;
 }
 
-/**
- * Convert an IQD price to the user's currency inferred from IP.
- * Allows explicit override via req.query.currency or req.headers['x-currency'].
- *
- * @param {import('express').Request} req
- * @param {number} iqdAmount - amount in IQD
- * @returns {Promise<{ amountIQD:number, currency:string, rate:number, amount:number, formatted:string, countryCode:string }>}
- */
+// 4) Main: convert IQD amount using IP (or explicit currency override)
 async function convertFromIQD(req, iqdAmount) {
-  // 1) target currency override (beats geo)
+  // explicit override wins
   const override = (req.query?.currency || req.headers["x-currency"] || "")
     .toString()
     .trim()
     .toUpperCase();
-  let targetCurrency =
-    override && /^[A-Z]{3}$/.test(override) ? override : null;
+  let target = /^[A-Z]{3}$/.test(override) ? override : null;
 
-  // 2) if no override, geolocate by IP
-  let countryCode = "IQ";
-  if (!targetCurrency) {
-    const ip = getClientIp(req);
-    const geo = await geolocateCurrencyByIp(ip);
-    countryCode = geo.countryCode || "IQ";
-    targetCurrency = geo.currency || "IQD";
+  const ip = pickClientIp(req);
+  const geo = await geolocateByIp(ip);
+
+  const countryCode = geo.countryCode;
+  if (!target) {
+    // prefer provider currency when present, else resolve from country on-demand
+    target = geo.currency || (await currencyForCountry(countryCode)) || "IQD";
   }
 
-  // 3) if target is IQD, short-circuit
-  if (targetCurrency === "IQD") {
+  if (target === "IQD") {
     return {
       amountIQD: iqdAmount,
       currency: "IQD",
@@ -115,41 +128,36 @@ async function convertFromIQD(req, iqdAmount) {
         currency: "IQD",
       }).format(iqdAmount),
       countryCode,
+      ipUsed: ip,
     };
   }
 
-  // 4) fetch FX and convert
   let rate = 1;
   try {
-    rate = await getRateIQDTo(targetCurrency);
+    rate = await getRateIQDTo(target);
   } catch {
-    // fall back to IQD if rate missing
-    targetCurrency = "IQD";
-    rate = 1;
+    // if the rate provider doesn’t support an exotic, fall back to IQD
+    target = "IQD";
   }
 
-  const converted = iqdAmount * rate;
-
-  // 5) format nicely for the user's locale (let runtime pick)
-  let formatted = `${converted.toFixed(2)} ${targetCurrency}`;
+  const amount = iqdAmount * rate;
+  let formatted = `${amount.toFixed(2)} ${target}`;
   try {
     formatted = new Intl.NumberFormat(undefined, {
       style: "currency",
-      currency: targetCurrency,
+      currency: target,
       maximumFractionDigits: 2,
-    }).format(converted);
-  } catch {
-    // some exotic currencies might not be supported by the Intl runtime;
-    // keep the simple fallback string
-  }
+    }).format(amount);
+  } catch {}
 
   return {
     amountIQD: iqdAmount,
-    currency: targetCurrency,
+    currency: target,
     rate,
-    amount: converted,
+    amount,
     formatted,
     countryCode,
+    ipUsed: ip,
   };
 }
 
