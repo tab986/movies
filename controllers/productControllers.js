@@ -187,7 +187,11 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
     KinguinProduct.find(where).sort(sort).skip(skip).limit(limit).lean(),
     KinguinProduct.countDocuments(),
   ]);
+  amount = 1000;
 
+  const iqd = Number(amount);
+  const r = await convertFromIQD(req, iqd);
+  console.log(r);
   const results = items.map((p) => ({
     kinguinId: p._id,
     name: p.overrides?.name || p.remote?.name,
