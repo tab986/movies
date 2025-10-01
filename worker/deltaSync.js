@@ -401,7 +401,7 @@ async function runOnce({ overlapMinutes = 2 } = {}) {
         }
 
         const minEur = computeMinEUR(p);
-        if (minEur == null) {
+        if (minEur == null || minEur >= 130) {
           skipNoPrice++;
           continue;
         }

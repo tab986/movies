@@ -46,7 +46,12 @@ const productsSchema = new mongoose.Schema(
 
 productsSchema.index({ price: 1 });
 productsSchema.index({ title: 1 });
-
+productsSchema.index({ category: 1 });
+productsSchema.index({ isVisible: 1 });
+productsSchema.index({ isBestseller: 1 });
+productsSchema.index({ isNew: 1 });
+productsSchema.index({ createdAt: -1 });
+productsSchema.index({ _id: -1 });
 // productsSchema.virtual("reviews", {
 //   ref: "Reviews",
 //   foreignField: "product",

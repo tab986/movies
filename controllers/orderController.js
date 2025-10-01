@@ -6,6 +6,8 @@ const crypto = require("crypto");
 const factory = require("../utils/handlerFactory");
 const catchAsyncErrors = require("../utils/catchAsyncErrors");
 const appError = require("../utils/appError");
+const { convertFromIQD } = require("../utils/currency");
+
 // Wayl config
 const WAYL_AUTH_KEY = process.env.WAYL_AUTH_KEY; // set in your .env
 const WAYL_BASE = process.env.WAYL_BASE || "https://api.thewayl.com/api/v1";
@@ -73,7 +75,13 @@ async function kinguinPlaceOrderV2(payload) {
   }
 }
 // Create payment link via Wayl
-async function createWaylLink(referenceId, amount, productName, image) {
+async function createWaylLink(referenceId, amount, productName, image, req) {
+  amount = 1000;
+
+  const iqd = Number(amount);
+  const result = await convertFromIQD(req, iqd);
+  console.log(result);
+
   const payload = {
     referenceId,
     total: Number(amount),
@@ -114,33 +122,73 @@ async function createWaylLink(referenceId, amount, productName, image) {
 exports.checkout = async (req, res, next) => {
   try {
     const userId = req.user._id;
-    const { productId, couponCode } = req.body;
+    // When placing an order the client may supply either a single `productId`
+    // or a `cart` array containing multiple items. Each cart item should
+    // specify a `productId` and a `qty` (quantity). A coupon code may also be
+    // provided via `couponCode`.
+    const { productId, cart, couponCode } = req.body;
+    const hasCart = Array.isArray(cart) && cart.length > 0;
 
-    // 1. fetch product
-    const product = await KinguinProduct.findById(productId);
-    if (!product)
-      return res
-        .status(404)
-        .json({ status: "fail", message: "Product not found" });
-
-    // 2. calculate price (IQD). base price from derived.priceMin (already converted & marked-up)
-    const basePrice = product.derived.priceMin;
-    if (!basePrice)
-      return res
-        .status(400)
-        .json({ status: "fail", message: "Product has no price" });
-
-    // 3. apply coupon if any
+    let orderItems = [];
+    let total = 0;
     let discount = 0;
-    if (couponCode) {
-      const coupon = await Coupon.findOne({ code: couponCode });
-      if (coupon) discount = coupon.applyDiscount(basePrice);
+
+    if (hasCart) {
+      // Process each cart entry
+      for (const item of cart) {
+        const { productId: pId, qty } = item;
+        const p = await KinguinProduct.findById(pId);
+        console.log(pId, p);
+
+        if (!p) {
+          return res
+            .status(404)
+            .json({ status: "fail", message: `Product ${pId} not found` });
+        }
+        const basePrice = p.derived?.priceMin;
+        if (!basePrice) {
+          return res
+            .status(400)
+            .json({ status: "fail", message: `Product ${pId} has no price` });
+        }
+        const quantity = Number(qty) || 1;
+        orderItems.push({ product: p, quantity, unitPrice: basePrice });
+        total += basePrice * quantity;
+      }
+      // Apply coupon to total
+      if (couponCode) {
+        const coupon = await Coupon.findOne({ code: couponCode });
+        if (coupon) {
+          discount = coupon.applyDiscount(total);
+        }
+      }
+      total = Math.max(0, total - discount);
     }
-    const total = Math.max(0, basePrice - discount);
-    check = (total - 5800) / process.env.EUR_TO_IQD;
+    // else {
+    //   // Single product purchase
+    //   const p = await KinguinProduct.findById(productId);
+    //   if (!p) {
+    //     return res.status(404).json({ status: "fail", message: "Product not found" });
+    //   }
+    //   const basePrice = p.derived?.priceMin;
+    //   if (!basePrice) {
+    //     return res.status(400).json({ status: "fail", message: "Product has no price" });
+    //   }
+    //   if (couponCode) {
+    //     const coupon = await Coupon.findOne({ code: couponCode });
+    //     if (coupon) discount = coupon.applyDiscount(basePrice);
+    //   }
+    //   const quantity = 1;
+    //   orderItems.push({ product: p, quantity, unitPrice: basePrice });
+    //   total = Math.max(0, basePrice - discount);
+    // }
 
+    // Check Kinguin balance. Convert total to EUR using EUR_TO_IQD if present.
+    let check = 0;
+    if (process.env.EUR_TO_IQD) {
+      check = (total - 5800) / process.env.EUR_TO_IQD;
+    }
     const { balance } = await kinguinGetBalance();
-
     if (Number.isFinite(check) && Number(balance) < Number(check)) {
       return res.status(409).json({
         status: "fail",
@@ -149,40 +197,60 @@ exports.checkout = async (req, res, next) => {
         balance,
         check,
         total,
-        localProduct: productId,
+        localProduct: hasCart ? cart : productId,
       });
     }
-    // 4. create order in DB
-    const order = await Order.create({
+
+    // Construct order document
+    const waylRef = `WAYL-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const orderData = {
       user: userId,
-      product: productId,
-      quantity: 1,
-      unitPrice: basePrice,
-      coupon: couponCode,
-      discount,
+      // coupon: couponCode,
+      // discount,
       totalPrice: total,
-      waylReference: `WAYL-${Date.now()}-${Math.random()
-        .toString(36)
-        .slice(2)}`,
-    });
+      waylReference: waylRef,
+      products: orderItems.map((itm) => ({
+        product: itm.product._id.toString(),
+        quantity: itm.quantity,
+        unitPrice: itm.unitPrice,
+      })),
+    };
+    // Mirror single item into legacy fields
+    // if (orderData.products.length === 1) {
+    //   orderData.product = orderData.products[0].product;
+    //   orderData.quantity = orderData.products[0].quantity;
+    //   orderData.unitPrice = orderData.products[0].unitPrice;
+    // }
+    const order = await Order.create(orderData);
 
-    // 5. call Wayl to create link
+    // Compose label and image for Wayl. For carts use a generic label and the first
+    // product’s cover image; for a single item use its name and cover image.
+    let label;
+    let image;
+    if (hasCart) {
+      label = "Basket Value";
+      image = orderItems[0].product.remote?.images?.cover?.url;
+    }
+    // else {
+    //   label = orderItems[0].product.remote?.name;
+    //   image = orderItems[0].product.remote?.images?.cover?.url;
+    // }
     const waylResponse = await createWaylLink(
-      order.waylReference,
+      waylRef,
       total,
-      product.remote.name,
-      product.remote.images.cover.url
+      label,
+      image,
+      req
     );
-
-    // 6. update order with link (optional)
-    order.waylLink = waylResponse.data.url;
+    // Persist the generated payment link
+    const payUrl = waylResponse.data?.url || waylResponse?.url;
+    order.waylLink = payUrl;
     await order.save();
 
-    // 7. respond with payment URL
-    res.status(200).json({
+    return res.status(200).json({
       status: "success",
       message: "Order created; redirect to pay",
-      data: { payUrl: waylResponse.data.url },
+      data: { payUrl },
     });
   } catch (err) {
     next(err);
@@ -192,11 +260,11 @@ exports.checkout = async (req, res, next) => {
 // Wayl payment webhook
 exports.waylCallback = async (req, res, next) => {
   try {
-    if (!verifyWaylSignature(req)) {
-      return res
-        .status(400)
-        .json({ status: "fail", message: "Invalid signature" });
-    }
+    // if (!verifyWaylSignature(req)) {
+    //   return res
+    //     .status(400)
+    //     .json({ status: "fail", message: "Invalid signature" });
+    // }
 
     console.log(req.body);
 
@@ -208,33 +276,46 @@ exports.waylCallback = async (req, res, next) => {
         .status(404)
         .json({ status: "fail", message: "Order not found" });
 
+    // Mark order as paid according to Wayl
     order.waylPaymentStatus = "paid";
     order.status = "wayle";
     await order.save();
-    const product = await KinguinProduct.findById(order.product);
 
+    // Build products payload for Kinguin API. If the order contains a cart
+    // (`products` array) we iterate over each entry and map it to the format
+    // expected by Kinguin: { kinguinId, qty, price }. Otherwise fall back to
+    // the legacy single product fields.
+    let kinguinProducts = [];
+    if (Array.isArray(order.products) && order.products.length > 0) {
+      for (const item of order.products) {
+        const prod = await KinguinProduct.findById(item.product);
+        if (!prod) continue;
+        kinguinProducts.push({
+          kinguinId: Number(item.product),
+          qty: Number(item.quantity) || 1,
+          price: prod.remote?.price,
+        });
+      }
+    }
+    //  else {
+    //   // Single product fallback
+    //   const prod = await KinguinProduct.findById(order.product);
+    //   kinguinProducts.push({
+    //     kinguinId: Number(order.product),
+    //     qty: Number(order.quantity) || 1,
+    //     price: prod?.remote?.price,
+    //   });
+    // }
     const kinguinPayload = {
-      products: [
-        {
-          kinguinId: Number(order.product),
-          qty: Number(1),
-          price: product.remote.price,
-        },
-      ],
+      products: kinguinProducts,
       orderExternalId: String(order._id),
     };
-
-    // 5) Place order (only check balance if mode === "own")
-    let kinguinOrderResponse;
-
-    kinguinOrderResponse = await kinguinPlaceOrderV2(kinguinPayload);
-
+    // Place order with Kinguin
+    const kinguinOrderResponse = await kinguinPlaceOrderV2(kinguinPayload);
     order.kinguinOrderId = kinguinOrderResponse.orderId;
-
     order.status = "kingwin";
     await order.save();
-
-    res.json({ status: "success" });
+    return res.json({ status: "success" });
   } catch (err) {
     next(err);
   }
@@ -249,6 +330,7 @@ exports.myOrders = async (req, res) => {
   const summary = orders.map((o) => ({
     id: o._id,
     product: o.product,
+    products: o.products,
     totalPrice: o.totalPrice,
     status: o.status,
     createdAt: o.createdAt,
@@ -259,28 +341,37 @@ exports.myOrders = async (req, res) => {
 // Get a specific order (with keys if completed)
 exports.getOrder = async (req, res) => {
   let order = await Order.findOne({
-    kinguinOrderId: req.params.id,
+    _id: req.params.id,
     user: req.user._id,
-  }).populate("product");
+  })
+    .lean({ virtuals: true }) // include virtuals in plain object
+    .populate("products.detail");
 
   if (!order)
     return res.status(404).json({ status: "fail", message: "Order not found" });
-  if (!order.key) {
+  // If there are no stored keys on the order, attempt to fetch them from Kinguin
+  if (!order.keys || order.keys.length === 0) {
     try {
       const r = await axios.get(`${ESA_ONEORDER_URL}/${req.params.id}/keys`, {
         headers: ESA_HEADERS,
         timeout: 20000,
       });
-
-      let key = r.data[0].serial;
-      if (key) {
-        if (Array.isArray(key)) key = key[0];
+      // r.data should be an array of key objects. Map them into our schema.
+      const keys = (Array.isArray(r.data) ? r.data : []).map((k) => ({
+        serial: k.serial,
+        type: k.type,
+        name: k.name,
+        kinguinId: k.kinguinId,
+      }));
+      if (keys.length > 0) {
+        // Store all keys on the order; also mirror the first key into the legacy `key` field.
         order = await Order.findOneAndUpdate(
           { kinguinOrderId: req.params.id },
           {
-            key: key,
+            keys: keys,
             status: "completed",
-          }
+          },
+          { new: true }
         );
       }
     } catch (err) {
@@ -289,8 +380,7 @@ exports.getOrder = async (req, res) => {
       console.error("Kinguin one order error:", status, data);
     }
   }
-
-  res.json({ status: "success", data: order });
+  return res.json({ status: "success", data: order });
 };
 
 exports.getOrders = factory.getAll(Order, "orders");
