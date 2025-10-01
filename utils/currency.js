@@ -141,6 +141,8 @@ async function convertFromIQD(req, iqdAmount) {
 
   // Short-circuit if we ended up with IQD
   if (target === "IQD") {
+    console.log(target);
+
     return {
       amountIQD: iqdAmount,
       currency: "IQD",
