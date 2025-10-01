@@ -130,12 +130,16 @@ async function convertFromIQD(req, iqdAmount) {
     .trim()
     .toUpperCase();
   let target = /^[A-Z]{3}$/.test(override) ? override : null;
-
+  console.log(target);
+  console.log("0");
   const ip = pickClientIp(req);
   const geo = await geolocateByIp(ip);
   const countryCode = geo.countryCode;
 
   if (!target) {
+    console.log(target);
+    console.log("1");
+
     target = geo.currency || (await currencyForCountry(countryCode)) || "IQD";
   }
 
