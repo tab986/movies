@@ -138,7 +138,6 @@ exports.checkout = async (req, res, next) => {
       for (const item of cart) {
         const { productId: pId, qty } = item;
         const p = await KinguinProduct.findById(pId);
-        console.log(pId, p);
 
         if (!p) {
           return res
