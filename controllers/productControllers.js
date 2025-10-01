@@ -188,6 +188,7 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
     KinguinProduct.countDocuments(),
   ]);
   amount = 1000;
+  const { convertFromIQD } = require("../utils/currency");
 
   const iqd = Number(amount);
   const r = await convertFromIQD(req, iqd);
