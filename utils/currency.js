@@ -93,6 +93,7 @@ async function currencyForCountry(countryCode) {
 
 // ---------- FX: cross-rate via USD (cached) ----------
 // Computes rate(IQD -> target) = (target/USD) / (IQD/USD)
+// ---------- FX: robust IQD -> target with fallbacks ----------
 async function getRateIQDTo(targetCurrency) {
   const sym = targetCurrency.toUpperCase();
   if (sym === "IQD") return 1;
@@ -101,18 +102,65 @@ async function getRateIQDTo(targetCurrency) {
   const cached = cacheGet(fxCache, key, FX_TTL_MS);
   if (cached != null) return cached;
 
-  const url = `https://api.exchangerate.host/latest?base=USD&symbols=IQD,${sym}`;
-  const { data } = await axios.get(url, { timeout: 8000 });
-  const rIQD = Number(data?.rates?.IQD); // IQD per USD
-  const rSym = Number(data?.rates?.[sym]); // sym per USD
-
-  if (!isFinite(rIQD) || !isFinite(rSym) || rIQD === 0) {
-    throw new Error(`Missing cross rates for USD->{IQD, ${sym}}`);
+  // 1) Primary: provider-side cross rate
+  try {
+    // amount=1 => data.result === rate(IQD->sym)
+    const { data } = await axios.get(
+      `https://api.exchangerate.host/convert?from=IQD&to=${encodeURIComponent(
+        sym
+      )}&amount=1`,
+      { timeout: 8000 }
+    );
+    const rate1 = Number(data?.result);
+    if (isFinite(rate1) && rate1 > 0) {
+      cacheSet(fxCache, key, rate1);
+      return rate1;
+    }
+  } catch {
+    /* fall through */
   }
 
-  const rate = rSym / rIQD;
-  cacheSet(fxCache, key, rate);
-  return rate;
+  // 2) Fallback A: cross-rate via USD
+  try {
+    const { data } = await axios.get(
+      `https://api.exchangerate.host/latest?base=USD&symbols=IQD,${encodeURIComponent(
+        sym
+      )}`,
+      { timeout: 8000 }
+    );
+    const rIQD = Number(data?.rates?.IQD); // IQD per USD
+    const rSYM = Number(data?.rates?.[sym]); // sym per USD
+    if (isFinite(rIQD) && isFinite(rSYM) && rIQD !== 0) {
+      const rate2 = rSYM / rIQD; // IQD -> sym
+      cacheSet(fxCache, key, rate2);
+      return rate2;
+    }
+  } catch {
+    /* fall through */
+  }
+
+  // 3) Fallback B: cross-rate via EUR
+  try {
+    const { data } = await axios.get(
+      `https://api.exchangerate.host/latest?base=EUR&symbols=IQD,${encodeURIComponent(
+        sym
+      )}`,
+      { timeout: 8000 }
+    );
+    const rIQD = Number(data?.rates?.IQD); // IQD per EUR
+    const rSYM = Number(data?.rates?.[sym]); // sym per EUR
+    if (isFinite(rIQD) && isFinite(rSYM) && rIQD !== 0) {
+      const rate3 = rSYM / rIQD; // IQD -> sym
+      cacheSet(fxCache, key, rate3);
+      return rate3;
+    }
+  } catch {
+    /* fall through */
+  }
+
+  throw new Error(
+    `Could not obtain rate for IQD->${sym} (convert & cross-rate failed)`
+  );
 }
 
 // ---------- main: convert IQD using IP (with overrides) ----------
