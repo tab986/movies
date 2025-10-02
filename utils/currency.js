@@ -94,6 +94,7 @@ async function currencyForCountry(countryCode) {
 // ---------- FX: cross-rate via USD (cached) ----------
 // Computes rate(IQD -> target) = (target/USD) / (IQD/USD)
 // ---------- FX: robust IQD -> target with fallbacks ----------
+// ---------- FX: robust IQD -> target using free sources (no keys) ----------
 async function getRateIQDTo(targetCurrency) {
   const sym = targetCurrency.toUpperCase();
   if (sym === "IQD") return 1;
@@ -102,65 +103,68 @@ async function getRateIQDTo(targetCurrency) {
   const cached = cacheGet(fxCache, key, FX_TTL_MS);
   if (cached != null) return cached;
 
-  // 1) Primary: provider-side cross rate
+  // 1) Primary: Fawaz Ahmed's currency API via jsDelivr (pair endpoint)
+  //   Docs/pattern: https://cdn.jsdelivr.net/gh/fawazahmed0/currency-api@1/latest/currencies/iqd/eur.json
   try {
-    // amount=1 => data.result === rate(IQD->sym)
-    const { data } = await axios.get(
-      `https://api.exchangerate.host/convert?from=IQD&to=${encodeURIComponent(
-        sym
-      )}&amount=1`,
-      { timeout: 8000 }
-    );
-    const rate1 = Number(data?.result);
+    const url = `https://cdn.jsdelivr.net/gh/fawazahmed0/currency-api@1/latest/currencies/iqd/${encodeURIComponent(
+      sym.toLowerCase()
+    )}.json`;
+    const { data } = await axios.get(url, { timeout: 8000 });
+    // response shape: { date: "YYYY-MM-DD", eur: 0.00069 }
+    const k = sym.toLowerCase();
+    const rate1 = Number(data?.[k]);
     if (isFinite(rate1) && rate1 > 0) {
       cacheSet(fxCache, key, rate1);
       return rate1;
     }
   } catch {
-    /* fall through */
+    /* continue */
   }
 
-  // 2) Fallback A: cross-rate via USD
+  // 2) Fallback A: same dataset, cross-rate via USD
+  //    IQD->SYM = (SYM/USD) / (IQD/USD)
   try {
-    const { data } = await axios.get(
-      `https://api.exchangerate.host/latest?base=USD&symbols=IQD,${encodeURIComponent(
-        sym
-      )}`,
-      { timeout: 8000 }
-    );
-    const rIQD = Number(data?.rates?.IQD); // IQD per USD
-    const rSYM = Number(data?.rates?.[sym]); // sym per USD
+    const [iqdUsd, symUsd] = await Promise.all([
+      axios.get(
+        "https://cdn.jsdelivr.net/gh/fawazahmed0/currency-api@1/latest/currencies/usd/iqd.json",
+        { timeout: 8000 }
+      ),
+      axios.get(
+        `https://cdn.jsdelivr.net/gh/fawazahmed0/currency-api@1/latest/currencies/usd/${encodeURIComponent(
+          sym.toLowerCase()
+        )}.json`,
+        { timeout: 8000 }
+      ),
+    ]);
+    const rIQD = Number(iqdUsd?.data?.iqd); // IQD per USD
+    const rSYM = Number(symUsd?.data?.[sym.toLowerCase()]); // sym per USD
     if (isFinite(rIQD) && isFinite(rSYM) && rIQD !== 0) {
-      const rate2 = rSYM / rIQD; // IQD -> sym
+      const rate2 = rSYM / rIQD;
       cacheSet(fxCache, key, rate2);
       return rate2;
     }
   } catch {
-    /* fall through */
+    /* continue */
   }
 
-  // 3) Fallback B: cross-rate via EUR
+  // 3) Fallback B: Open ER API (USD base) cross-rate
   try {
-    const { data } = await axios.get(
-      `https://api.exchangerate.host/latest?base=EUR&symbols=IQD,${encodeURIComponent(
-        sym
-      )}`,
-      { timeout: 8000 }
-    );
-    const rIQD = Number(data?.rates?.IQD); // IQD per EUR
-    const rSYM = Number(data?.rates?.[sym]); // sym per EUR
+    const { data } = await axios.get("https://open.er-api.com/v6/latest/USD", {
+      timeout: 8000,
+    });
+    // shape: { result:"success", rates:{ USD:1, EUR:0.92, IQD:1309.5, ... } }
+    const rIQD = Number(data?.rates?.IQD);
+    const rSYM = Number(data?.rates?.[sym]);
     if (isFinite(rIQD) && isFinite(rSYM) && rIQD !== 0) {
-      const rate3 = rSYM / rIQD; // IQD -> sym
+      const rate3 = rSYM / rIQD;
       cacheSet(fxCache, key, rate3);
       return rate3;
     }
   } catch {
-    /* fall through */
+    /* continue */
   }
 
-  throw new Error(
-    `Could not obtain rate for IQD->${sym} (convert & cross-rate failed)`
-  );
+  throw new Error(`Could not obtain rate for IQD->${sym} from free sources`);
 }
 
 // ---------- main: convert IQD using IP (with overrides) ----------
