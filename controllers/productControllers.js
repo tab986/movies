@@ -3,6 +3,8 @@ const mongoose = require("mongoose");
 const KinguinProduct = require("../models/KinguinProduct"); // local mirror schema
 const catchAsyncErrors = require("../utils/catchAsyncErrors");
 const appError = require("../utils/appError");
+const { convertFromIQD } = require("../utils/currency");
+
 // controllers/localProductsController.js (excerpt)
 
 // --- same normalizer you used in the worker ---
@@ -187,7 +189,6 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
     KinguinProduct.find(where).sort(sort).skip(skip).limit(limit).lean(),
     KinguinProduct.countDocuments(),
   ]);
-  const { convertFromIQD } = require("../utils/currency");
 
   // helpers (inline)
   const truncate2 = (n) => Math.trunc(Number(n) * 100) / 100;
