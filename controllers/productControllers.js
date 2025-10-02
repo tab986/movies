@@ -193,30 +193,62 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
   const iqd = Number(amount);
   const r = await convertFromIQD(req, iqd);
   console.log(r);
-  const results = items.map((p) => ({
-    kinguinId: p._id,
-    name: p.overrides?.name || p.remote?.name,
-    image: p.overrides?.images?.cover || p.remote?.images?.cover?.url,
-    priceMin: p.derived?.priceMin,
-    inStock: p.derived?.inStock,
-    regionId: p.remote?.regionId,
-    tags: p.remote?.tags,
-    platform: p.remote?.platform,
-    qty: p.remote?.qty,
-    updatedAt: p.remote?.updatedAt,
-    activationDetails: p.remote?.activationDetails,
-    videos: p.remote?.videos,
-    languages: p.remote?.languages,
-    systemRequirements: p.remote?.systemRequirements,
-    originalName: p.remote?.originalName,
-    metacriticScore: p.remote?.metacriticScore,
-    genres: p.remote?.genres,
-    publishers: p.remote?.publishers,
-    developers: p.remote?.developers,
-    releaseDate: p.remote?.releaseDate,
-    description: p.overrides?.description || p.remote?.description,
-    remote: p.remote, // keep for admin/debug
-  }));
+  // helpers (inline)
+  const truncate2 = (n) => Math.trunc(Number(n) * 100) / 100;
+  const safeFormat = (amount, currency) => {
+    if (amount == null) return null;
+    try {
+      return new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency,
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(amount);
+    } catch {
+      return `${amount.toFixed(2)} ${currency}`;
+    }
+  };
+
+  // before mapping, get a single FX rate for this request
+  const fx1 = await convertFromIQD(req, 1); // 1 IQD → X
+  const rate = fx1.fxFallback ? 1 : fx1.rate; // multiplier from IQD
+  const currency = fx1.fxFallback ? "IQD" : fx1.currency;
+
+  const results = items.map((p) => {
+    const priceIQD = p.derived?.priceMin ?? null;
+    const priceConverted = priceIQD != null ? truncate2(priceIQD * rate) : null;
+
+    return {
+      kinguinId: p._id,
+      name: p.overrides?.name || p.remote?.name,
+      image: p.overrides?.images?.cover || p.remote?.images?.cover?.url,
+
+      // prices & currency
+      currency, // e.g., 'EUR'
+      priceMinIQD: priceIQD, // original in IQD (kept for debugging)
+      priceMin: priceConverted, // converted, truncated to 2 decimals
+      priceMinFormatted: safeFormat(priceConverted, currency),
+
+      inStock: p.derived?.inStock,
+      regionId: p.remote?.regionId,
+      tags: p.remote?.tags,
+      platform: p.remote?.platform,
+      qty: p.remote?.qty,
+      updatedAt: p.remote?.updatedAt,
+      activationDetails: p.remote?.activationDetails,
+      videos: p.remote?.videos,
+      languages: p.remote?.languages,
+      systemRequirements: p.remote?.systemRequirements,
+      originalName: p.remote?.originalName,
+      metacriticScore: p.remote?.metacriticScore,
+      genres: p.remote?.genres,
+      publishers: p.remote?.publishers,
+      developers: p.remote?.developers,
+      releaseDate: p.remote?.releaseDate,
+      description: p.overrides?.description || p.remote?.description,
+      remote: p.remote, // keep for admin/debug
+    };
+  });
 
   res.status(200).json({
     status: "success",

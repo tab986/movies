@@ -35,7 +35,7 @@ const KinguinProductSchema = new mongoose.Schema(
       activationDetails: String,
       videos: mongoose.Schema.Types.Mixed,
       languages: [String],
-
+      currency: { type: String, default: "IQD" }, // always "USD" from Kinguin
       systemRequirements: mongoose.Schema.Types.Mixed,
       originalName: String,
       metacriticScore: Number,
