@@ -175,6 +175,8 @@ exports.getUsers = catchAsync(async (req, res, next) => {
 exports.sendOTP = catchAsync(async (req, res, next) => {
   const { phone } = req.body;
   if (!phone) return next(new AppError("Phone number is required", 400));
+  const user = await Users.findOne({ phone });
+  if (user) return next(new AppError("User already exists", 404));
 
   const twilio = require("twilio")(
     process.env.TWILIO_ACCOUNT_SID,
