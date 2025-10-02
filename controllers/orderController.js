@@ -76,24 +76,43 @@ async function kinguinPlaceOrderV2(payload) {
 }
 // Create payment link via Wayl
 async function createWaylLink(referenceId, amount, productName, image, req) {
-  amount = 1000;
-
+  // keep Wayl in IQD
   const iqd = Number(amount);
-  const result = await convertFromIQD(req, iqd);
-  console.log(result);
+  if (!Number.isFinite(iqd) || iqd <= 0) throw new Error("Invalid IQD amount");
+
+  // FX preview (for UI/logs). Truncate to first 2 decimals (no rounding).
+  const fx = await convertFromIQD(req, iqd);
+  const truncate2 = (n) => Math.trunc(Number(n) * 100) / 100;
+  const fxAmountTruncated = truncate2(fx.amount);
+  console.log({
+    ...fx,
+    amount: fxAmountTruncated,
+    formattedTruncated: (() => {
+      try {
+        return new Intl.NumberFormat(undefined, {
+          style: "currency",
+          currency: fx.currency,
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        }).format(fxAmountTruncated);
+      } catch {
+        return `${fxAmountTruncated.toFixed(2)} ${fx.currency}`;
+      }
+    })(),
+  });
 
   const payload = {
-    referenceId,
-    total: Number(amount),
+    referenceId: String(referenceId),
+    total: iqd, // Wayl expects IQD here
     lineItem: [
       {
-        label: productName,
+        label: productName || "Basket Value",
         type: "increase",
-        amount: Number(amount),
+        amount: iqd, // IQD line item
         image,
       },
     ],
-    webhookUrl: process.env.WAYL_r,
+    webhookUrl: process.env.WAYL_r, // keeping your env var name as-is
     redirectionUrl: "https://google.com",
     webhookSecret: process.env.WAYL_SECRET,
     currency: "IQD",
@@ -102,10 +121,33 @@ async function createWaylLink(referenceId, amount, productName, image, req) {
   try {
     const res = await axios.post(`${WAYL_BASE}/links`, payload, {
       headers: { "X-WAYL-AUTHENTICATION": WAYL_AUTH_KEY },
+      timeout: 15000,
     });
-    return res.data; // { url, linkId, referenceId, ... }
+
+    // append ?currency=iqd (or &currency=iqd) to returned link
+    if (res?.data?.url) {
+      try {
+        const u = new URL(res.data.url);
+        u.searchParams.set("currency", "iqd");
+        res.data.url = u.toString();
+      } catch {
+        res.data.url =
+          res.data.url +
+          (res.data.url.includes("?") ? "&" : "?") +
+          "currency=iqd";
+      }
+    }
+
+    // optionally include the truncated FX preview for your frontend
+    return {
+      ...res.data,
+      fxPreview: {
+        currency: fx.currency,
+        rate: fx.rate,
+        amount: fxAmountTruncated,
+      },
+    };
   } catch (err) {
-    // Print Wayl’s validation message so you see exactly what failed
     const status = err.response?.status;
     const data = err.response?.data;
     console.error(
