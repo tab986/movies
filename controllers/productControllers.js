@@ -265,6 +265,17 @@ exports.getProduct = catchAsyncErrors(async (req, res, next) => {
   if (!p || p.flags?.hidden === true)
     return res.status(404).json({ status: "not_found" });
 
+  // ---- currency + min price conversion (IQD -> user's currency) ----
+  const truncate2 = (n) => Math.trunc(Number(n) * 100) / 100;
+
+  // Get per-IQD rate once
+  const fx = await convertFromIQD(req, 1); // 1 IQD => X target currency units
+  const rate = fx.fxFallback ? 1 : fx.rate; // multiplier from IQD
+  const currency = fx.fxFallback ? "IQD" : fx.currency; // target currency (or IQD fallback)
+
+  const priceIQD = p.derived?.priceMin ?? null;
+  const priceConverted = priceIQD != null ? truncate2(priceIQD * rate) : null;
+
   res.status(200).json({
     status: "success",
     data: {
@@ -272,7 +283,12 @@ exports.getProduct = catchAsyncErrors(async (req, res, next) => {
       name: p.overrides?.name || p.remote?.name,
       description: p.overrides?.description || p.remote?.description,
       images: p.overrides?.images || p.remote?.images,
-      priceMin: p.derived?.priceMin,
+
+      // ---- prices & currency ----
+      currency, // e.g., 'EUR' (or 'IQD' if FX fallback)
+      priceMinIQD: priceIQD, // original min price in IQD
+      priceMin: priceConverted, // converted, truncated to 2 decimals
+
       inStock: p.derived?.inStock,
       regionId: p.remote?.regionId,
       platform: p.remote?.platform,
@@ -289,7 +305,7 @@ exports.getProduct = catchAsyncErrors(async (req, res, next) => {
       developers: p.remote?.developers,
       releaseDate: p.remote?.releaseDate,
       tags: p.remote?.tags,
-      // remote: p.remote, // keep for admin/debug
+      remote: p.remote, // keep for admin/debug
     },
   });
 });
