@@ -187,12 +187,7 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
     KinguinProduct.find(where).sort(sort).skip(skip).limit(limit).lean(),
     KinguinProduct.countDocuments(),
   ]);
-  amount = 1000;
-  const { convertFromIQD } = require("../utils/currency");
 
-  const iqd = Number(amount);
-  const r = await convertFromIQD(req, iqd);
-  console.log(r);
   // helpers (inline)
   const truncate2 = (n) => Math.trunc(Number(n) * 100) / 100;
   const safeFormat = (amount, currency) => {
