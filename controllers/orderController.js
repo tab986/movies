@@ -76,46 +76,38 @@ async function kinguinPlaceOrderV2(payload) {
 }
 // Create payment link via Wayl
 async function createWaylLink(referenceId, amount, productName, image, req) {
-  // keep Wayl in IQD
+  // base (IQD from your system)
   const iqd = Number(amount);
-  if (!Number.isFinite(iqd) || iqd <= 0) throw new Error("Invalid IQD amount");
+  if (!Number.isFinite(iqd) || iqd <= 0) throw new Error("Invalid amount");
 
-  // FX preview (for UI/logs). Truncate to first 2 decimals (no rounding).
+  // FX: detect target currency from IP (or ?currency / x-currency override)
   const fx = await convertFromIQD(req, iqd);
+
+  // first 2 decimals (truncate, not round)
   const truncate2 = (n) => Math.trunc(Number(n) * 100) / 100;
-  const fxAmountTruncated = truncate2(fx.amount);
-  console.log({
-    ...fx,
-    amount: fxAmountTruncated,
-    formattedTruncated: (() => {
-      try {
-        return new Intl.NumberFormat(undefined, {
-          style: "currency",
-          currency: fx.currency,
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-        }).format(fxAmountTruncated);
-      } catch {
-        return `${fxAmountTruncated.toFixed(2)} ${fx.currency}`;
-      }
-    })(),
-  });
+
+  // Decide what to send to Wayl:
+  // - If FX succeeded → use detected currency + converted amount
+  // - If FX failed or stayed IQD → fall back to IQD + original amount
+  const payCurrency = fx.fxFallback ? "IQD" : fx.currency || "IQD";
+  const payAmount =
+    fx.fxFallback || payCurrency === "IQD" ? iqd : truncate2(fx.amount);
 
   const payload = {
     referenceId: String(referenceId),
-    total: iqd, // Wayl expects IQD here
+    total: payAmount, // converted amount (or IQD fallback)
+    currency: payCurrency, // detected currency (or IQD fallback)
     lineItem: [
       {
         label: productName || "Basket Value",
         type: "increase",
-        amount: iqd, // IQD line item
+        amount: payAmount,
         image,
       },
     ],
-    webhookUrl: process.env.WAYL_r, // keeping your env var name as-is
+    webhookUrl: process.env.WAYL_r,
     redirectionUrl: "https://google.com",
     webhookSecret: process.env.WAYL_SECRET,
-    currency: "IQD",
   };
 
   try {
@@ -124,29 +116,30 @@ async function createWaylLink(referenceId, amount, productName, image, req) {
       timeout: 15000,
     });
 
-    // append ?currency=iqd (or &currency=iqd) to returned link
+    // Append currency param to link (?currency=xxx)
     if (res?.data?.url) {
       try {
         const u = new URL(res.data.url);
-        u.searchParams.set("currency", "iqd");
+        u.searchParams.set("currency", String(payCurrency).toLowerCase());
         res.data.url = u.toString();
       } catch {
         res.data.url =
           res.data.url +
           (res.data.url.includes("?") ? "&" : "?") +
-          "currency=iqd";
+          `currency=${encodeURIComponent(String(payCurrency).toLowerCase())}`;
       }
     }
 
-    // optionally include the truncated FX preview for your frontend
-    return {
-      ...res.data,
-      fxPreview: {
-        currency: fx.currency,
-        rate: fx.rate,
-        amount: fxAmountTruncated,
-      },
+    // Optional: include FX info for your UI/logs
+    res.data.fxPreview = {
+      fromIQD: iqd,
+      currency: payCurrency,
+      rate: fx.fxFallback ? 1 : fx.rate,
+      amount: payAmount,
+      fallback: !!fx.fxFallback,
     };
+
+    return res.data; // { url, linkId, referenceId, ..., fxPreview }
   } catch (err) {
     const status = err.response?.status;
     const data = err.response?.data;
