@@ -46,6 +46,7 @@ const orderSchema = new mongoose.Schema(
     discount: { type: Number, default: 0 }, // discount amount in IQD
     totalPrice: { type: Number, required: true }, // final IQD after discount
     waylReference: { type: String, required: true },
+    country: { type: String, default: "IQ" },
     waylPaymentStatus: {
       type: String,
       enum: ["pending", "paid", "failed"],
