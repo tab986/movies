@@ -95,8 +95,8 @@ async function createWaylLink(referenceId, amount, productName, image, req) {
 
   const payload = {
     referenceId: String(referenceId),
-    total: payAmount, // converted amount (or IQD fallback)
-    currency: payCurrency, // detected currency (or IQD fallback)
+    total: iqd, // converted amount (or IQD fallback)
+    currency: "IQD", // detected currency (or IQD fallback)
     lineItem: [
       {
         label: productName || "Basket Value",
@@ -386,10 +386,13 @@ exports.getOrder = async (req, res) => {
   // If there are no stored keys on the order, attempt to fetch them from Kinguin
   if (!order.keys || order.keys.length === 0) {
     try {
-      const r = await axios.get(`${ESA_ONEORDER_URL}/${req.params.id}/keys`, {
-        headers: ESA_HEADERS,
-        timeout: 20000,
-      });
+      const r = await axios.get(
+        `${ESA_ONEORDER_URL}/${order.kinguinOrderId}/keys`,
+        {
+          headers: ESA_HEADERS,
+          timeout: 20000,
+        }
+      );
       // r.data should be an array of key objects. Map them into our schema.
       const keys = (Array.isArray(r.data) ? r.data : []).map((k) => ({
         serial: k.serial,
@@ -400,13 +403,15 @@ exports.getOrder = async (req, res) => {
       if (keys.length > 0) {
         // Store all keys on the order; also mirror the first key into the legacy `key` field.
         order = await Order.findOneAndUpdate(
-          { kinguinOrderId: req.params.id },
+          { kinguinOrderId: order.kinguinOrderId },
           {
             keys: keys,
             status: "completed",
           },
           { new: true }
-        );
+        )
+          .lean({ virtuals: true }) // include virtuals in plain object
+          .populate("products.detail");
       }
     } catch (err) {
       const status = err.response?.status;
