@@ -45,7 +45,6 @@ const orderSchema = new mongoose.Schema(
     merchants: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true,
     },
     coupon: { type: String },
     discount: { type: Number, default: 0 }, // discount amount in IQD
