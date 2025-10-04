@@ -6,13 +6,8 @@ const catchAsyncErrors = require("../utils/catchAsyncErrors");
 exports.getDashboardStats = catchAsyncErrors(async (req, res) => {
   const { from, to, tz = "Asia/Baghdad", topN = 10 } = req.query;
 
-  // Only include paid/fulfilled orders
-  const paidMatch = {
-    $or: [
-      { waylPaymentStatus: "paid" },
-      { status: { $in: ["completed", "kingwin", "wayle"] } },
-    ],
-  };
+  // STRICT: only completed + kingwin orders across ALL stats
+  const statusFilter = { status: { $in: ["completed"] } };
 
   const dateMatch =
     from || to
@@ -69,7 +64,7 @@ exports.getDashboardStats = catchAsyncErrors(async (req, res) => {
     { $match: { productKid: { $ne: null } } },
   ];
 
-  // Tiny lookup for top-selling cards (name + single image with fallbacks)
+  // Tiny lookup for top-selling cards (name + one image with fallbacks)
   const lookupMinimalForItemCard = {
     $lookup: {
       from: PRODUCTS,
@@ -165,10 +160,10 @@ exports.getDashboardStats = catchAsyncErrors(async (req, res) => {
   };
 
   const pipeline = [
-    { $match: { ...paidMatch, ...dateMatch } },
+    { $match: { ...statusFilter, ...dateMatch } },
     {
       $facet: {
-        // Totals / AOV / unique buyers
+        // Totals / AOV / unique buyers (from completed + kingwin only)
         perOrder: [
           {
             $group: {
@@ -190,16 +185,14 @@ exports.getDashboardStats = catchAsyncErrors(async (req, res) => {
           },
         ],
 
-        // Countries — normalize to IQ when missing/empty/"-"/"—"
+        // Countries — map missing/empty/"-"/"—" to IQ
         countries: [
           {
             $group: {
               _id: {
                 $let: {
                   vars: {
-                    c: {
-                      $trim: { input: { $ifNull: ["$country", ""] } },
-                    },
+                    c: { $trim: { input: { $ifNull: ["$country", ""] } } },
                   },
                   in: {
                     $cond: [
@@ -224,26 +217,37 @@ exports.getDashboardStats = catchAsyncErrors(async (req, res) => {
           { $sort: { revenue: -1 } },
         ],
 
-        // Merchants (coupon/referral) — normalize null/empty/whitespace to "—"
+        // Merchants = your RESELLERS (order.merchants ObjectId)
         merchants: [
           {
             $group: {
-              _id: {
-                $let: {
-                  vars: {
-                    c: { $trim: { input: { $ifNull: ["$coupon", ""] } } },
-                  },
-                  in: { $cond: [{ $eq: ["$$c", ""] }, "—", "$$c"] },
-                },
-              },
+              _id: "$merchants", // reseller id
               orders: { $sum: 1 },
               revenue: { $sum: "$totalPrice" },
             },
           },
           {
+            $lookup: {
+              from: "users", // adjust if your Users collection name differs
+              localField: "_id",
+              foreignField: "_id",
+              as: "u",
+              pipeline: [
+                { $project: { _id: 0, name: 1, username: 1, email: 1 } },
+              ],
+            },
+          },
+          { $addFields: { u0: { $arrayElemAt: ["$u", 0] } } },
+          {
             $project: {
               _id: 0,
-              code: "$_id",
+              resellerId: "$$ROOT._id",
+              resellerName: {
+                $ifNull: [
+                  "$u0.name",
+                  { $ifNull: ["$u0.username", "game-wise-website"] },
+                ],
+              },
               orders: 1,
               revenue: 1,
               aov: {
@@ -258,7 +262,7 @@ exports.getDashboardStats = catchAsyncErrors(async (req, res) => {
           { $sort: { revenue: -1 } },
         ],
 
-        // Monthly series
+        // Monthly (completed + kingwin only)
         monthly: [
           {
             $group: {
@@ -277,7 +281,7 @@ exports.getDashboardStats = catchAsyncErrors(async (req, res) => {
           { $sort: { month: 1 } },
         ],
 
-        // Top selling games
+        // Top selling games (only from the filtered orders)
         perItem: [
           addLineItems,
           ...normalizeLineItems,
@@ -291,7 +295,7 @@ exports.getDashboardStats = catchAsyncErrors(async (req, res) => {
           { $sort: { quantity: -1 } },
           { $limit: Number(topN) },
           lookupMinimalForItemCard,
-          { $addFields: { p0: { $arrayElemAt: ["$p", 0] } } }, // safe array → object
+          { $addFields: { p0: { $arrayElemAt: ["$p", 0] } } }, // array → object
           {
             $project: {
               _id: 0,
@@ -304,7 +308,7 @@ exports.getDashboardStats = catchAsyncErrors(async (req, res) => {
           },
         ],
 
-        // Distributors (simple heuristic)
+        // Distributors (heuristic; still only on the filtered orders)
         distributors: [
           {
             $addFields: {
@@ -328,7 +332,7 @@ exports.getDashboardStats = catchAsyncErrors(async (req, res) => {
           { $sort: { revenue: -1 } },
         ],
 
-        // Suppliers (sales-based), grouped by product → tiny lookup → grouped by supplier
+        // Suppliers (sales-based)
         suppliers: [
           addLineItems,
           ...normalizeLineItems,
@@ -399,12 +403,12 @@ exports.getDashboardStats = catchAsyncErrors(async (req, res) => {
     },
   ];
 
-  // Run orders aggregation
+  // Run orders aggregation (only completed + kingwin)
   const aggResult = (await Order.aggregate(pipeline))[0] || {};
 
-  // === Local Kinguin catalog (from your DB) ===
+  // === Local Kinguin catalog (unchanged; from your DB) ===
   const [catalogTotal, catalogBySupplier] = await Promise.all([
-    KinguinProduct.countDocuments({}), // exact local count
+    KinguinProduct.countDocuments({}),
     KinguinProduct.aggregate([
       {
         $project: {
@@ -444,9 +448,8 @@ exports.getDashboardStats = catchAsyncErrors(async (req, res) => {
 
   for (const row of catalogBySupplier) {
     const cur = bySupplier.get(row.supplier);
-    if (cur) {
-      cur.catalogProducts = row.catalogProducts;
-    } else {
+    if (cur) cur.catalogProducts = row.catalogProducts;
+    else
       bySupplier.set(row.supplier, {
         supplier: row.supplier,
         catalogProducts: row.catalogProducts,
@@ -455,13 +458,10 @@ exports.getDashboardStats = catchAsyncErrors(async (req, res) => {
         uniqueProducts: 0,
         orders: 0,
       });
-    }
   }
 
   // Compose final suppliers list
   let suppliers = Array.from(bySupplier.values());
-
-  // Sort: revenue desc, itemsSold desc, catalogProducts desc
   suppliers.sort(
     (a, b) =>
       b.revenue - a.revenue ||
@@ -469,7 +469,7 @@ exports.getDashboardStats = catchAsyncErrors(async (req, res) => {
       (b.catalogProducts || 0) - (a.catalogProducts || 0)
   );
 
-  // Prepend a synthetic "catalog total" row (LOCAL DB)
+  // Prepend local catalog total row (informational)
   suppliers.unshift({
     supplier: "Kinguin (Catalog)",
     catalogCount: catalogTotal,
@@ -487,14 +487,13 @@ exports.getDashboardStats = catchAsyncErrors(async (req, res) => {
         to: to ? new Date(to) : null,
         timezone: tz,
       },
-      // Sourced locally
       kinguinCatalog: {
         count: catalogTotal,
         source: "local:KinguinProduct.countDocuments()",
         sandbox: false,
       },
       countries: aggResult.countries || [],
-      merchants: aggResult.merchants || [],
+      merchants: aggResult.merchants || [], // now RESSELLERS
       monthly: aggResult.monthly || [],
       distributors: aggResult.distributors || [],
       totals: aggResult.totals || {
