@@ -51,6 +51,7 @@ const KinguinProductSchema = new mongoose.Schema(
       name: String,
       description: String,
       images: mongoose.Schema.Types.Mixed,
+      isAd: Boolean,
     },
 
     // Helpers computed on sync to speed up queries

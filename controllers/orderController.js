@@ -7,6 +7,7 @@ const factory = require("../utils/handlerFactory");
 const catchAsyncErrors = require("../utils/catchAsyncErrors");
 const appError = require("../utils/appError");
 const { convertFromIQD } = require("../utils/currency");
+const { stat } = require("fs");
 
 // Wayl config
 const WAYL_AUTH_KEY = process.env.WAYL_AUTH_KEY; // set in your .env
@@ -357,7 +358,10 @@ exports.waylCallback = async (req, res, next) => {
 
 // List current user's orders
 exports.myOrders = async (req, res) => {
-  const orders = await Order.find({ user: req.user._id })
+  const orders = await Order.find({
+    user: req.user._id,
+    status: { $in: ["completed", "kingwin"] },
+  })
     .populate("product")
     .sort("-createdAt")
     .lean();
@@ -375,6 +379,7 @@ exports.myOrders = async (req, res) => {
 // Get a specific order (with keys if completed)
 exports.getOrder = async (req, res) => {
   let order = await Order.findOne({
+    status: { $in: ["completed", "kingwin"] },
     _id: req.params.id,
     user: req.user._id,
   })

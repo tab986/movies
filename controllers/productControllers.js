@@ -125,7 +125,9 @@ function buildListQuery(qs) {
     if (qs.priceTo) range.$lte = Number(qs.priceTo);
     where["derived.priceMin"] = range;
   }
-
+  if (qs.isAd) {
+    where["overrides.isAd"] = true;
+  }
   // -------- Metacritic score range --------
   // Assuming stored at remote.metacriticScore (change path if different)
   if (qs.metacriticScoreFrom || qs.metacriticScoreTo) {
@@ -218,7 +220,7 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
     return {
       kinguinId: p._id,
       name: p.overrides?.name || p.remote?.name,
-      image: p.overrides?.images?.cover || p.remote?.images?.cover?.url,
+      images: p.overrides?.images || p.remote?.images,
 
       // prices & currency
       currency, // e.g., 'EUR'
@@ -322,6 +324,8 @@ exports.patchOverrides = catchAsyncErrors(async (req, res, next) => {
   const allowed = {};
   if (req.body?.name !== undefined)
     allowed["overrides.name"] = String(req.body.name);
+  if (req.body?.name !== undefined)
+    allowed["overrides.isAd"] = String(req.body.isAd);
   if (req.body?.description !== undefined)
     allowed["overrides.description"] = String(req.body.description);
   if (req.body?.images !== undefined)

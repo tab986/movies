@@ -2,9 +2,8 @@ const exp = require("express");
 const productsControllers = require("../controllers/productControllers");
 const authControllers = require("../controllers/authControllers");
 const ordersControllers = require("../controllers/orderController");
-const statesController = require("../controllers/statesController");
+const statesController = require("../controllers/statsController");
 const adsControllers = require("../controllers/adsController");
-
 const {
   createImageProcessingMiddleware,
   createMultiImageProcessingMiddleware,
@@ -20,7 +19,7 @@ const {
 //new
 
 const router = exp.Router({ mergeParams: true });
-
+router.route("/stats").get(statesController.getDashboardStats);
 router.route("/signup").post(authControllers.signup("admin"));
 router.route("/login").post(authControllers.login);
 

@@ -42,6 +42,11 @@ const orderSchema = new mongoose.Schema(
     // New cart items array. Each entry corresponds to one product in the
     // customer’s cart.
     products: { type: [orderItemSchema], default: [] },
+    merchants: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
     coupon: { type: String },
     discount: { type: Number, default: 0 }, // discount amount in IQD
     totalPrice: { type: Number, required: true }, // final IQD after discount
