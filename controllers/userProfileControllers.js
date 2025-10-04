@@ -65,3 +65,14 @@ exports.adminDeleteUser = async (req, res, next) => {
     next(err);
   }
 };
+
+exports.getUsers = async (req, res, next) => {
+  try {
+    if (req.user?.role !== "admin")
+      return res.status(403).json({ status: "fail", message: "Forbidden" });
+    const users = await User.find().lean();
+    res.status(200).json({ status: "success", results: users.length, users });
+  } catch (err) {
+    next(err);
+  }
+};

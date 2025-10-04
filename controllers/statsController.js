@@ -495,6 +495,7 @@ exports.getDashboardStats = catchAsyncErrors(async (req, res) => {
       countries: aggResult.countries || [],
       merchants: aggResult.merchants || [], // now RESSELLERS
       monthly: aggResult.monthly || [],
+      roiPerItem: 5800,
       distributors: aggResult.distributors || [],
       totals: aggResult.totals || {
         revenue: 0,
