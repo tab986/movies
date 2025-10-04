@@ -220,7 +220,7 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
     return {
       kinguinId: p._id,
       name: p.overrides?.name || p.remote?.name,
-      images: p.overrides?.images || p.remote?.images,
+      images: p.remote?.images,
 
       // prices & currency
       currency, // e.g., 'EUR'
