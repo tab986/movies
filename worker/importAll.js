@@ -69,6 +69,12 @@ const ALLOWED_PLATFORMS = [
   "Xbox 360",
   "Xbox One",
   "Xbox Series X|S",
+
+  // Card & console platforms (global cards)
+  "PlayStation",
+  "Nintendo",
+  "Android",
+  "Other",
 ];
 
 // Genres allow-list (canonical)
@@ -121,11 +127,17 @@ const NAME_EXCLUDE_RE = /\baccount\b/i;
 
 // ------------------------ Normalizers & helpers ----------------------------
 function normStr(s) {
-  return String(s || "")
-    .toLowerCase()
-    .replace(/[_\-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return (
+    String(s || "")
+      .toLowerCase()
+      // Treat underscores, hyphens and plus signs as separators.  When
+      // Kinguin labels come through or user queries include plus signs (e.g.
+      // "PC+Steam"), we want to normalize them to spaces so canonical
+      // matching works correctly.
+      .replace(/[_\-+]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
 }
 
 // Platform synonyms map (wide)
@@ -171,6 +183,38 @@ const PLATFORM_SYNONYMS = new Map([
 
   // Generic PC
   ["pc", "pc"],
+
+  // PlayStation family
+  ["playstation", "playstation"],
+  ["playstation 4", "playstation"],
+  ["playstation 3", "playstation"],
+  ["ps", "playstation"],
+  ["ps4", "playstation"],
+  ["ps3", "playstation"],
+  ["playstation network", "playstation"],
+  ["psn", "playstation"],
+
+  // Nintendo / eShop
+  ["nintendo", "nintendo"],
+  ["nintendo switch", "nintendo"],
+  ["nintendo eshop", "nintendo"],
+  ["eshop", "nintendo"],
+  ["switch", "nintendo"],
+
+  // Mobile & digital stores
+  ["android", "android"],
+  ["google play", "android"],
+  ["play", "android"],
+  ["play store", "android"],
+  ["ios", "itunes"],
+  ["itunes", "itunes"],
+  ["itunes card", "itunes"],
+  ["app store", "itunes"],
+  ["app store & itunes", "itunes"],
+  ["apple", "itunes"],
+
+  // Misc / fallback
+  ["other", "other"],
 
   // Xbox
   ["xbox one", "xbox one"],
@@ -393,13 +437,24 @@ async function runImportAll({ logger = console } = {}) {
     for (const p of results) {
       // ---- STRICT GATES ----
       // Name
+      // For non-card products, we require that the name include the phrase
+      // "CD Key" and that it does not include "account".  For prepaid
+      // products we relax the rules: we do not require "CD Key" in the
+      // name, but we still skip items whose name contains "account" to
+      // avoid account resale listings.
       const nm = p?.name || "";
-      if (
-        !NAME_REQUIRE_RE.test(nm) ||
-        (NAME_EXCLUDE_RE.test(nm) && !p.tags?.includes("prepaid"))
-      ) {
-        skipName++;
-        continue;
+      const isCardItem = Array.isArray(p?.tags) && p.tags.includes("prepaid");
+      if (!isCardItem) {
+        if (!NAME_REQUIRE_RE.test(nm) || NAME_EXCLUDE_RE.test(nm)) {
+          skipName++;
+          continue;
+        }
+      } else {
+        // For cards: only exclude names that include "account"
+        if (NAME_EXCLUDE_RE.test(nm)) {
+          skipName++;
+          continue;
+        }
       }
 
       // Region
@@ -414,13 +469,17 @@ async function runImportAll({ logger = console } = {}) {
       {
         const regionOk = ALLOWED_REGION_IDS.includes(Number(p?.regionId));
         const isCard = Array.isArray(p?.tags) && p.tags.includes("prepaid");
-        if (!regionOk) {
-          if (!isCard) {
+        if (isCard) {
+          // For cards: always enforce global/reg‑free requirement.  Even if the
+          // regionId is in the allowed list, we don't want EU/US/region‑locked
+          // gift cards.  If not global, skip.
+          if (!isGlobalCard(p)) {
             skipRegion++;
             continue;
           }
-          // For cards, require global or region‑free; otherwise skip
-          if (!isGlobalCard(p)) {
+        } else {
+          // Non‑card products must be in the allowed region list
+          if (!regionOk) {
             skipRegion++;
             continue;
           }
