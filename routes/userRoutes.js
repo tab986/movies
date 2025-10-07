@@ -17,7 +17,7 @@ const [uploadProfileImage, processProfileImage] =
 
 // Public auth routes
 router.post("/signup", authControllers.signup()); // default role = "user"
-router.post("/login", authControllers.login);
+router.post("/login", authControllers.login());
 router.post("/send-otp", authControllers.sendOTP);
 router.post("/password/request-otp", authControllers.requestPasswordResetOtp);
 router.post("/password/update-with-otp", authControllers.updatePasswordWithOtp);
