@@ -417,13 +417,15 @@ async function runImportAll({ logger = console } = {}) {
   );
 
   function isSteamName(name) {
-    return /\bsteam\b/i.test(name);
+    return /\bSteam\b/i.test(name);
   }
 
   // "US" as a standalone token, or common variants.
   // Won't match "AUS" because of the word boundaries.
   function mentionsUS(name) {
-    return /\bUS\b|\bU\.S\.A?\.?\b|\bUnited States\b/i.test(name);
+    return /\bUS\b|\bU\.S\.A?\.?\b|\$\b|\bU\.S\.A?\.?\b|\bUnited States\b/i.test(
+      name
+    );
   }
 
   // If name includes "Steam" AND does NOT include "US" → skip
