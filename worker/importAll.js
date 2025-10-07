@@ -380,28 +380,32 @@ async function runImportAll({ logger = console } = {}) {
 
       // Genres (blacklist then allow-list)
       const genres = Array.isArray(p?.genres) ? p.genres : [];
-      if (!genres.length) {
+      if (!genres.length && !p.tags?.includes("prepaid")) {
         skipMissingGenres++;
         continue;
       }
-      if (bannedGenrePresent(genres)) {
+      if (bannedGenrePresent(genres) && !p.tags?.includes("prepaid")) {
         skipBannedGenre++;
         continue;
       }
-      if (!allowedGenreMatch(genres)) {
+      if (!allowedGenreMatch(genres) && !p.tags?.includes("prepaid")) {
         skipGenre++;
         continue;
       }
 
       // Platform required + normalize to canonical
       const hasPlatform = !!p?.platform;
-      if (!hasPlatform) {
+      if (!hasPlatform && !p.tags?.includes("prepaid")) {
         skipMissingPlatform++;
         continue;
       }
 
       const platformCanonical = normalizePlatform(p.platform);
-      if (!platformCanonical || !allowedPlatformMatch(platformCanonical)) {
+      if (
+        !platformCanonical ||
+        (!allowedPlatformMatch(platformCanonical) &&
+          !p.tags?.includes("prepaid"))
+      ) {
         skipPlatform++;
         continue;
       }
@@ -431,6 +435,7 @@ async function runImportAll({ logger = console } = {}) {
           : [],
         regionId: Number(p.regionId) || null,
         tags: Array.isArray(p.tags) ? p.tags : [],
+        isCard: p.tags?.includes("prepaid"),
         platform: p.platform || null, // keep original label
         genres: genres,
         activationDetails: p.activationDetails || null,
