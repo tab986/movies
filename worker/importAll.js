@@ -240,6 +240,33 @@ function bannedGenrePresent(arr) {
   return arr.some((g) => BLACKLIST_GENRES_NORMALIZED.has(normalizeGenre(g)));
 }
 
+// -------------------------------------------------------------------------
+// Card helper
+//
+// Kinguin uses the "prepaid" tag on gift cards and wallet codes.  When a
+// product has this tag we treat it as a card rather than a traditional game.
+// Historically the importer would completely bypass region checks for cards,
+// which meant that region‑locked cards (e.g. US‑only, EU‑only) would slip
+// through into the catalog.  To avoid stocking region‑restricted cards in
+// markets where they cannot be redeemed we now explicitly filter prepaid
+// products by looking for "global" indicators.  A card is considered global
+// if either its name contains the word "global" or its regionalLimitations
+// field contains "region free" or "global".  See README for details.
+
+function isGlobalCard(p) {
+  // Only makes sense for prepaid items
+  if (!p?.tags || !Array.isArray(p.tags) || !p.tags.includes("prepaid")) {
+    return false;
+  }
+  const nm = String(p.name || "").toLowerCase();
+  // Many global cards explicitly include "Global Activation Code" in the name
+  if (/global/.test(nm)) return true;
+  const regional = String(p.regionalLimitations || "").toLowerCase();
+  // "REGION FREE" or any mention of global in regionalLimitations also counts
+  if (/region\s*free/.test(regional) || /global/.test(regional)) return true;
+  return false;
+}
+
 // ----------------------------- Derived helpers ----------------------------
 function computeMinEUR(up) {
   const pool = [];
@@ -376,12 +403,28 @@ async function runImportAll({ logger = console } = {}) {
       }
 
       // Region
-      if (
-        !ALLOWED_REGION_IDS.includes(Number(p?.regionId)) &&
-        !p.tags?.includes("prepaid")
-      ) {
-        skipRegion++;
-        continue;
+      // Region enforcement: by default we allow only products whose regionId
+      // is in the ALLOWED_REGION_IDS list.  Previously, prepaid items were
+      // exempt from this check which allowed region‑locked gift cards (e.g.
+      // "US Activation Code", "EUROPE - all countries") into the catalog.
+      // To limit cards to globally redeemable codes we still perform a
+      // region check for prepaid products: cards must be flagged as global
+      // via isGlobalCard().  If neither condition is met the product is
+      // skipped and counted as a region skip.
+      {
+        const regionOk = ALLOWED_REGION_IDS.includes(Number(p?.regionId));
+        const isCard = Array.isArray(p?.tags) && p.tags.includes("prepaid");
+        if (!regionOk) {
+          if (!isCard) {
+            skipRegion++;
+            continue;
+          }
+          // For cards, require global or region‑free; otherwise skip
+          if (!isGlobalCard(p)) {
+            skipRegion++;
+            continue;
+          }
+        }
       }
 
       // Genres (blacklist then allow-list)
