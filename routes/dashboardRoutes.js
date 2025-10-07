@@ -19,12 +19,12 @@ const {
 //new
 
 const router = exp.Router({ mergeParams: true });
-router.route("/stats").get(statesController.getDashboardStats);
 router.route("/signup").post(authControllers.signup("admin"));
 router.route("/login").post(authControllers.login);
 
 router.use(authControllers.protect);
 router.use(authControllers.onlyPermission("admin"));
+router.route("/stats").get(statesController.getDashboardStats);
 
 //product
 const [uploadProductImages, resizeProductImages] =
