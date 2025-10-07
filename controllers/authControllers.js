@@ -84,9 +84,10 @@ exports.login = (role = "user") =>
 
     const token = createToken(user._id);
     res.cookie("JWT", token, getCookieOptions());
-if (role === "admin") {
-    if (user.role !== "admin") {
-      return next(new AppError("You do not have admin access", 403));
+    if (role === "admin") {
+      if (user.role !== "admin") {
+        return next(new AppError("You do not have admin access", 403));
+      }
     }
     res.status(200).json({
       status: "success",

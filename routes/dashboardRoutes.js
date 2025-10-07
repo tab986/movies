@@ -20,7 +20,7 @@ const {
 
 const router = exp.Router({ mergeParams: true });
 router.route("/signup").post(authControllers.signup("admin"));
-router.route("/login").post(authControllers.login);
+router.route("/login").post(authControllers.login("admin"));
 
 router.use(authControllers.protect);
 router.use(authControllers.onlyPermission("admin"));
