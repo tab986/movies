@@ -427,10 +427,12 @@ async function runImportAll({ logger = console } = {}) {
       name
     );
   }
-
+  function mentionsARS(name) {
+    return /\bARS\b/i.test(name);
+  }
   // If name includes "Steam" AND does NOT include "US" → skip
   function shouldSkipForSteamNonUS(name) {
-    return isSteamName(name) && !mentionsUS(name);
+    return (isSteamName(name) && !mentionsUS(name)) || mentionsARS(name);
   }
   // Counters
   let fetched = 0,
