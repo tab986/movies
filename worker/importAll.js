@@ -416,6 +416,20 @@ async function runImportAll({ logger = console } = {}) {
     `[importAll] upstream_total=${upstreamTotal}, pages=${totalPages}, concurrency=${CONCURRENCY}`
   );
 
+  function isSteamName(name) {
+    return /\bsteam\b/i.test(name);
+  }
+
+  // "US" as a standalone token, or common variants.
+  // Won't match "AUS" because of the word boundaries.
+  function mentionsUS(name) {
+    return /\bUS\b|\bU\.S\.A?\.?\b|\bUnited States\b/i.test(name);
+  }
+
+  // If name includes "Steam" AND does NOT include "US" → skip
+  function shouldSkipForSteamNonUS(name) {
+    return isSteamName(name) && !mentionsUS(name);
+  }
   // Counters
   let fetched = 0,
     kept = 0,
@@ -456,7 +470,10 @@ async function runImportAll({ logger = console } = {}) {
           continue;
         }
       }
-
+      if (isCardItem && shouldSkipForSteamNonUS(nm)) {
+        skipName++;
+        continue;
+      }
       // Region
       // Region enforcement: by default we allow only products whose regionId
       // is in the ALLOWED_REGION_IDS list.  Previously, prepaid items were
