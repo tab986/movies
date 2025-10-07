@@ -373,7 +373,10 @@ async function runImportAll({ logger = console } = {}) {
       }
 
       // Region
-      if (!ALLOWED_REGION_IDS.includes(Number(p?.regionId))) {
+      if (
+        !ALLOWED_REGION_IDS.includes(Number(p?.regionId)) &&
+        !p.tags?.includes("prepaid")
+      ) {
         skipRegion++;
         continue;
       }

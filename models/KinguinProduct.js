@@ -31,6 +31,7 @@ const KinguinProductSchema = new mongoose.Schema(
       offers: [OfferSchema],
       regionId: Number,
       tags: [String],
+      isCard: Boolean, // derived from tags
       updatedAt: Date,
       activationDetails: String,
       videos: mongoose.Schema.Types.Mixed,
