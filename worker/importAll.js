@@ -367,7 +367,10 @@ async function runImportAll({ logger = console } = {}) {
       // ---- STRICT GATES ----
       // Name
       const nm = p?.name || "";
-      if (!NAME_REQUIRE_RE.test(nm) || NAME_EXCLUDE_RE.test(nm)) {
+      if (
+        !NAME_REQUIRE_RE.test(nm) ||
+        (NAME_EXCLUDE_RE.test(nm) && !p.tags?.includes("prepaid"))
+      ) {
         skipName++;
         continue;
       }
