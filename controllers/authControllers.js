@@ -69,27 +69,31 @@ exports.signup = (role = "user") =>
 /**
  * Login for any role
  */
-exports.login = catchAsync(async (req, res, next) => {
-  const { phone, password } = req.body;
+exports.login = (role = "user") =>
+  catchAsync(async (req, res, next) => {
+    const { phone, password } = req.body;
 
-  if (!phone || !password) {
-    return next(new AppError("Please provide both phone and password", 400));
-  }
+    if (!phone || !password) {
+      return next(new AppError("Please provide both phone and password", 400));
+    }
 
-  const user = await Users.findOne({ phone }).select("+password");
-  if (!user || !(await user.checkPassword(password, user.password))) {
-    return next(new AppError("Incorrect phone or password", 401));
-  }
+    const user = await Users.findOne({ phone }).select("+password");
+    if (!user || !(await user.checkPassword(password, user.password))) {
+      return next(new AppError("Incorrect phone or password", 401));
+    }
 
-  const token = createToken(user._id);
-  res.cookie("JWT", token, getCookieOptions());
-
-  res.status(200).json({
-    status: "success",
-    token,
-    data: { user },
+    const token = createToken(user._id);
+    res.cookie("JWT", token, getCookieOptions());
+if (role === "admin") {
+    if (user.role !== "admin") {
+      return next(new AppError("You do not have admin access", 403));
+    }
+    res.status(200).json({
+      status: "success",
+      token,
+      data: { user },
+    });
   });
-});
 
 exports.protect = catchAsync(async (req, res, next) => {
   let token;
