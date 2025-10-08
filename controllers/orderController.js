@@ -107,7 +107,7 @@ async function createWaylLink(referenceId, amount, productName, image, req) {
       },
     ],
     webhookUrl: process.env.WAYL_r,
-    redirectionUrl: "https://google.com",
+    redirectionUrl: "https://www.gamewiseiq.com/my-orders",
     webhookSecret: process.env.WAYL_SECRET,
   };
 
