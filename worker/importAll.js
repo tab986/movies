@@ -535,9 +535,10 @@ async function runImportAll({ logger = console } = {}) {
 
         // ✅ Brand whitelist filter
         if (!isAllowedBrand(nm)) {
-          if (!(nm.toLowerCase().includes("iTunes".toLowerCase()))) {
-          skipName++;
-          continue;
+          if (!nm.toLowerCase().includes("iTunes".toLowerCase())) {
+            skipName++;
+            continue;
+          }
         }
 
         // 🚫 Skip if non-US region mentioned
