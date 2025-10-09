@@ -416,24 +416,6 @@ async function runImportAll({ logger = console } = {}) {
     `[importAll] upstream_total=${upstreamTotal}, pages=${totalPages}, concurrency=${CONCURRENCY}`
   );
 
-  function isSteamName(name) {
-    return /\bSteam\b/i.test(name);
-  }
-
-  // "US" as a standalone token, or common variants.
-  // Won't match "AUS" because of the word boundaries.
-  function mentionsUS(name) {
-    return /\bUS\b|\bU\.S\.A?\.?\b|\$\b|\bU\.S\.A?\.?\b|\bUnited States\b/i.test(
-      name
-    );
-  }
-  function mentionsARS(name) {
-    return /\bARS\b/i.test(name);
-  }
-  // If name includes "Steam" AND does NOT include "US" → skip
-  function shouldSkipForSteamNonUS(name) {
-    return (isSteamName(name) && !mentionsUS(name)) || mentionsARS(name);
-  }
   // Counters
   let fetched = 0,
     kept = 0,
@@ -474,6 +456,100 @@ async function runImportAll({ logger = console } = {}) {
           continue;
         }
       }
+
+      // --- Whitelisted brands ---
+      const ALLOWED_BRANDS = [
+        "game pass",
+        "playstation",
+        "discord nitro",
+        "discord server boost",
+        "crunchyroll",
+        "steam",
+        "nintendo",
+        "ea",
+        "apple",
+        "google play",
+        "civitai",
+        "roblox",
+        "world of warcraft",
+        "itunes",
+        "spotify",
+        "blizzard",
+        "razer gold",
+        "ea sports fc 25 points",
+        "black ops 6 cod points",
+        "play cabal",
+        "minecraft minecoins",
+        "youtube premium",
+        "xbox live",
+        "league of legends",
+        "free fire",
+        "pubg mobile",
+        "fortnite",
+        "marvel rivals",
+        "overwatch",
+        "call of duty mobile",
+        "grand theft auto online shark card",
+        "destiny 2 silver",
+        "apex legends apex coins",
+        "red dead redemption 2 online gold bars",
+        "rainbow six siege credits pack",
+      ];
+
+      // --- Helper functions ---
+      function isSteamName(name) {
+        return /\bSteam\b/i.test(name);
+      }
+
+      function mentionsUS(name) {
+        return /\bUS\b|\bU\.S\.A?\.?\b|\$\b|\bUnited States\b/i.test(name);
+      }
+
+      function mentionsARS(name) {
+        return /\bARS\b/i.test(name);
+      }
+
+      // Match any other country (UK, EU, FR, etc.)
+      function mentionsOtherCountry(name) {
+        // Basic pattern for any 2–3 letter region or common region words
+        const OTHER_COUNTRY_RE =
+          /\b(EU|UK|FR|DE|CA|LATAM|BR|MEX|RU|CN|SEA|AUS|NZ|JP|KR|TR|PL|ES|IT|IN|AFRICA|MENA|ASIA|EUROPE)\b/i;
+        return OTHER_COUNTRY_RE.test(name) && !mentionsUS(name);
+      }
+
+      // Should skip if Steam non-US or ARS or other country
+      function shouldSkipForSteamNonUS(name) {
+        return (
+          (isSteamName(name) && !mentionsUS(name)) ||
+          mentionsARS(name) ||
+          mentionsOtherCountry(name)
+        );
+      }
+
+      // Check if product name contains an allowed brand
+      if (isCardItem) {
+        function isAllowedBrand(name) {
+          const n = name.toLowerCase();
+          return ALLOWED_BRANDS.some((b) => n.includes(b));
+        }
+
+        // --- Inside your processResults() loop ---
+
+        // ✅ Brand whitelist filter
+        if (!isAllowedBrand(nm)) {
+          skipName++;
+          continue;
+        }
+
+        // 🚫 Skip if non-US region mentioned
+        if (shouldSkipForSteamNonUS(nm)) {
+          skipRegion++;
+          continue;
+        }
+      }
+
+      // continue saving or updating ops as before
+
       if (isCardItem && shouldSkipForSteamNonUS(nm)) {
         skipName++;
         continue;
