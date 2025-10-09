@@ -472,7 +472,7 @@ async function runImportAll({ logger = console } = {}) {
         "civitai",
         "roblox",
         "world of warcraft",
-        "itunes",
+        "iTunes",
         "spotify",
         "blizzard",
         "razer gold",
@@ -525,18 +525,17 @@ async function runImportAll({ logger = console } = {}) {
           mentionsOtherCountry(name)
         );
       }
-
+      function isAllowedBrand(name) {
+        const n = name.toLowerCase();
+        return ALLOWED_BRANDS.some((b) => n.includes(b));
+      }
       // Check if product name contains an allowed brand
       if (isCardItem) {
-        function isAllowedBrand(name) {
-          const n = name.toLowerCase();
-          return ALLOWED_BRANDS.some((b) => n.includes(b));
-        }
-
         // --- Inside your processResults() loop ---
 
         // ✅ Brand whitelist filter
         if (!isAllowedBrand(nm)) {
+          if (!(nm.toLowerCase().includes("iTunes".toLowerCase()))) {
           skipName++;
           continue;
         }
