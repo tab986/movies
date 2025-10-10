@@ -51,8 +51,8 @@ function buildListQuery(qs) {
     const canon = normalizePlatform(qs.platform);
     if (canon) where["derived.platformCanonical"] = canon;
   }
-  const wantCards = String(qs.isCard).toLowerCase() === "true";
-  where["remote.isCard"] = wantCards ? true : { $ne: true };
+  // const wantCards = String(qs.isCard).toLowerCase() === "true";
+  // where["remote.isCard"] = wantCards ? true : { $ne: true };
   // Region
   if (qs.regionId) where["remote.regionId"] = Number(qs.regionId);
 
