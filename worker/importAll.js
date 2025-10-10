@@ -534,7 +534,7 @@ async function runImportAll({ logger = console } = {}) {
         // --- Inside your processResults() loop ---
 
         // ✅ Brand whitelist filter
-        if (!isAllowedBrand(nm)) {
+        if (!isAllowedBrand(nm) & nm.includes("BeastUnbox")) {
           if (!nm.toLowerCase().includes("iTunes".toLowerCase())) {
             skipName++;
             continue;
