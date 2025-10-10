@@ -129,6 +129,7 @@ function buildListQuery(qs) {
   if (qs.isAd) {
     where["overrides.isAd"] = true;
   }
+
   // -------- Metacritic score range --------
   // Assuming stored at remote.metacriticScore (change path if different)
   if (qs.metacriticScoreFrom || qs.metacriticScoreTo) {
