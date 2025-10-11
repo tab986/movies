@@ -188,12 +188,15 @@ function buildListQuery(qs) {
 exports.listProducts = catchAsyncErrors(async (req, res, next) => {
   const { where, page, limit, sort } = buildListQuery(req.query);
   const skip = (page - 1) * limit;
+  const pageCount = await KinguinProduct.find(where)
+    .sort(sort)
+    .clone()
+    .countDocuments();
 
   const [items, count] = await Promise.all([
     KinguinProduct.find(where).sort(sort).skip(skip).limit(limit).lean(),
     KinguinProduct.countDocuments(),
   ]);
-
   // helpers (inline)
   const truncate2 = (n) => Math.trunc(Number(n) * 100) / 100;
   const safeFormat = (amount, currency) => {
@@ -253,7 +256,7 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
 
   res.status(200).json({
     status: "success",
-    meta: { page, limit, item_count: count },
+    meta: { pageCount, page, limit, item_count: count },
     results,
   });
 });
