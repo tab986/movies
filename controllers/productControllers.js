@@ -192,7 +192,7 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
     .sort(sort)
     .clone()
     .countDocuments();
-
+  pageCount = Math.ceil(pageCount / limit);
   const [items, count] = await Promise.all([
     KinguinProduct.find(where).sort(sort).skip(skip).limit(limit).lean(),
     KinguinProduct.countDocuments(),
