@@ -533,8 +533,27 @@ async function runImportAll({ logger = console } = {}) {
       if (isCardItem) {
         // --- Inside your processResults() loop ---
 
+        const BANNED_SOURCES = [
+          "RBLXReaper",
+          "SteamLevelU",
+          "RustEasy",
+          "GGHeaven",
+          "ROCheap",
+          "AliveAI",
+          "Earnweb",
+          "BeastUnbox",
+        ];
+
+        const lower = nm.toLowerCase();
+
+        // 🚫 Skip banned merchants regardless of brand
+        if (BANNED_SOURCES.some((bad) => lower.includes(bad.toLowerCase()))) {
+          skipName++;
+          continue;
+        }
+
         // ✅ Brand whitelist filter
-        if (!isAllowedBrand(nm) || nm.includes("BeastUnbox")) {
+        if (!isAllowedBrand(nm) || nm.includes("BeastUnbox") || nm.includes()) {
           if (!nm.toLowerCase().includes("iTunes".toLowerCase())) {
             skipName++;
             continue;
