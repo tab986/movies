@@ -188,7 +188,7 @@ function buildListQuery(qs) {
 exports.listProducts = catchAsyncErrors(async (req, res, next) => {
   const { where, page, limit, sort } = buildListQuery(req.query);
   const skip = (page - 1) * limit;
-  const pageCount = await KinguinProduct.find(where)
+  let pageCount = await KinguinProduct.find(where)
     .sort(sort)
     .clone()
     .countDocuments();
