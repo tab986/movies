@@ -19,13 +19,7 @@ exports.updateProfileData = async (req, res, next) => {
 
     // Only update fields that are sent in the request body. We do not
     // attempt to update sensitive fields like password here.
-    const updatableFields = [
-      "fullName",
-      "phone",
-      "governorate",
-      "city",
-      "address",
-    ];
+    const updatableFields = ["fullName", "governorate", "city", "address"];
     updatableFields.forEach((field) => {
       if (req.body[field] !== undefined) {
         user[field] = req.body[field];
