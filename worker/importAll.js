@@ -284,33 +284,6 @@ function bannedGenrePresent(arr) {
   return arr.some((g) => BLACKLIST_GENRES_NORMALIZED.has(normalizeGenre(g)));
 }
 
-// -------------------------------------------------------------------------
-// Card helper
-//
-// Kinguin uses the "prepaid" tag on gift cards and wallet codes.  When a
-// product has this tag we treat it as a card rather than a traditional game.
-// Historically the importer would completely bypass region checks for cards,
-// which meant that region‑locked cards (e.g. US‑only, EU‑only) would slip
-// through into the catalog.  To avoid stocking region‑restricted cards in
-// markets where they cannot be redeemed we now explicitly filter prepaid
-// products by looking for "global" indicators.  A card is considered global
-// if either its name contains the word "global" or its regionalLimitations
-// field contains "region free" or "global".  See README for details.
-
-function isGlobalCard(p) {
-  // Only makes sense for prepaid items
-  if (!p?.tags || !Array.isArray(p.tags) || !p.tags.includes("prepaid")) {
-    return false;
-  }
-  const nm = String(p.name || "").toLowerCase();
-  // Many global cards explicitly include "Global Activation Code" in the name
-  if (/global/.test(nm)) return true;
-  const regional = String(p.regionalLimitations || "").toLowerCase();
-  // "REGION FREE" or any mention of global in regionalLimitations also counts
-  if (/region\s*free/.test(regional) || /global/.test(regional)) return true;
-  return false;
-}
-
 // ----------------------------- Derived helpers ----------------------------
 function computeMinEUR(up) {
   const pool = [];
@@ -325,9 +298,21 @@ function computeMinEUR(up) {
   return pool.length ? Math.min(...pool) : null;
 }
 
-function eurToIqd(minEur) {
+// Optional: keep these near other pricing constants
+const CARD_FIXED_FEE_IQD = 800;
+const CARD_PERCENT_FEE = 0.03;
+
+function eurToIqd(minEur, { isCard = false } = {}) {
   if (minEur == null) return undefined;
-  return Math.round(minEur * EUR_TO_IQD + IQD_MARKUP);
+
+  const baseIqd = minEur * EUR_TO_IQD;
+
+  if (isCard) {
+    const cardFee = CARD_FIXED_FEE_IQD + baseIqd * CARD_PERCENT_FEE; // 800 + 3% of base
+    return Math.round(baseIqd + cardFee);
+  }
+
+  return Math.round(baseIqd + IQD_MARKUP);
 }
 
 function computeDerived(up) {
@@ -337,7 +322,8 @@ function computeDerived(up) {
       up.offers.some((o) => (Number(o?.availableQty) || 0) > 0));
 
   const minEur = computeMinEUR(up); // STRICT: must exist (checked gate)
-  const priceMin = eurToIqd(minEur);
+  const isCard = !!up?.remote?.isCard; // set earlier by your whitelist
+  const priceMin = eurToIqd(minEur, { isCard });
 
   return { inStock, priceMin };
 }
@@ -614,88 +600,80 @@ async function runImportAll({ logger = console } = {}) {
       // --- Optional: keep your brand list if used elsewhere ---
 
       // --- Inside your processing loop ---
-      {
-        const lower = nm.toLowerCase();
 
-        // 🚫 Skip banned merchants
-        if (BANNED_SOURCES.some((bad) => lower.includes(bad.toLowerCase()))) {
+      const lower = nm.toLowerCase();
+
+      // 🚫 Skip banned merchants
+      if (BANNED_SOURCES.some((bad) => lower.includes(bad.toLowerCase()))) {
+        skipName++;
+        continue;
+      }
+
+      // ✅ Decide if this item is a "card" purely by title match
+      const isCard = isWhitelistedCard(nm);
+
+      // 🔎 Name filters apply to non-card items only
+      if (!isCard) {
+        if (!NAME_REQUIRE_RE.test(nm) || NAME_EXCLUDE_RE.test(nm)) {
           skipName++;
           continue;
         }
+      }
 
-        // ✅ Decide if this item is a "card" purely by title match
-        const isCard = isWhitelistedCard(nm);
+      const regionOk = ALLOWED_REGION_IDS.includes(Number(p?.regionId));
+      if (!regionOk) {
+        skipRegion++;
+        continue;
+      }
 
-        // 🔎 Name filters apply to non-card items only
-        if (!isCard) {
-          if (!NAME_REQUIRE_RE.test(nm) || NAME_EXCLUDE_RE.test(nm)) {
-            skipName++;
-            continue;
-          }
-        }
-
-        // 🚫 Steam non-US skip remains (global)
-        if (shouldSkipForSteamNonUS(nm)) {
-          skipRegion++;
-          continue;
-        }
-
-        // 🌍 Region: normal enforcement only — no special card rules and no prepaid tag checks
-        {
-          const regionOk = ALLOWED_REGION_IDS.includes(Number(p?.regionId));
-          if (!regionOk) {
-            skipRegion++;
-            continue;
-          }
-        }
-
-        // 🏷️ Mark as card for downstream queries/UI (no reliance on tags/prepaid)
-        p.remote = p.remote || {};
-        if (isCard) {
-          p.remote.isCard = true;
-        } else {
-          // optional: ensure it's not incorrectly flagged
-          if (p.remote.isCard === true) delete p.remote.isCard;
-        }
+      // 🏷️ Mark as card for downstream queries/UI (no reliance on tags/prepaid)
+      p.remote = p.remote || {};
+      if (isCard) {
+        p.remote.isCard = true;
+      } else {
+        // optional: ensure it's not incorrectly flagged
+        if (p.remote.isCard === true) delete p.remote.isCard;
       }
 
       // Genres (blacklist then allow-list)
-      const genres = Array.isArray(p?.genres) ? p.genres : [];
-      if (!genres.length && !p.tags?.includes("prepaid")) {
-        skipMissingGenres++;
-        continue;
-      }
-      if (bannedGenrePresent(genres) && !p.tags?.includes("prepaid")) {
-        skipBannedGenre++;
-        continue;
-      }
-      if (!allowedGenreMatch(genres) && !p.tags?.includes("prepaid")) {
-        skipGenre++;
-        continue;
-      }
+      if (!isCard) {
+        const genres = Array.isArray(p?.genres) ? p.genres : [];
+        if (!genres.length) {
+          skipMissingGenres++;
+          continue;
+        }
+        if (bannedGenrePresent(genres)) {
+          skipBannedGenre++;
+          continue;
+        }
+        if (!allowedGenreMatch(genres)) {
+          skipGenre++;
+          continue;
+        }
 
-      // Platform required + normalize to canonical
-      const hasPlatform = !!p?.platform;
-      if (!hasPlatform && !p.tags?.includes("prepaid")) {
-        skipMissingPlatform++;
-        continue;
-      }
+        // Platform required + normalize to canonical
+        const hasPlatform = !!p?.platform;
+        if (!hasPlatform) {
+          skipMissingPlatform++;
+          continue;
+        }
 
-      const platformCanonical = normalizePlatform(p.platform);
-      if (
-        !platformCanonical ||
-        (!allowedPlatformMatch(platformCanonical) &&
-          !p.tags?.includes("prepaid"))
-      ) {
-        skipPlatform++;
-        continue;
-      }
+        const platformCanonical = normalizePlatform(p.platform);
+        if (
+          !platformCanonical ||
+          (!allowedPlatformMatch(platformCanonical) &&
+            !p.tags?.includes("prepaid"))
+        ) {
+          skipPlatform++;
+          continue;
+        }
 
-      // Price required
-      const minEur = computeMinEUR(p);
-      if (minEur == null || minEur >= 130) {
-        skipNoPrice++;
-        continue;
+        // Price required
+        const minEur = computeMinEUR(p);
+        if (minEur == null || minEur >= 130) {
+          skipNoPrice++;
+          continue;
+        }
       }
 
       // ---- SHAPE & UPSERT ----
@@ -716,7 +694,7 @@ async function runImportAll({ logger = console } = {}) {
           : [],
         regionId: Number(p.regionId) || null,
         tags: Array.isArray(p.tags) ? p.tags : [],
-        isCard: p.tags?.includes("prepaid"),
+        isCard: isCard,
         platform: p.platform || null, // keep original label
         genres: genres,
         activationDetails: p.activationDetails || null,
