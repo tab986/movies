@@ -636,6 +636,9 @@ async function runImportAll({ logger = console } = {}) {
       }
 
       const genres = Array.isArray(p?.genres) ? p.genres : [];
+      const platformCanonical = normalizePlatform(p.platform);
+      const minEur = computeMinEUR(p);
+
       // Genres (blacklist then allow-list)
       if (!isCard) {
         if (!genres.length) {
@@ -658,14 +661,12 @@ async function runImportAll({ logger = console } = {}) {
           continue;
         }
 
-        const platformCanonical = normalizePlatform(p.platform);
         if (!platformCanonical || !allowedPlatformMatch(platformCanonical)) {
           skipPlatform++;
           continue;
         }
 
         // Price required
-        const minEur = computeMinEUR(p);
         if (minEur == null || minEur >= 130) {
           skipNoPrice++;
           continue;
