@@ -635,9 +635,9 @@ async function runImportAll({ logger = console } = {}) {
         if (p.remote.isCard === true) delete p.remote.isCard;
       }
 
+      const genres = Array.isArray(p?.genres) ? p.genres : [];
       // Genres (blacklist then allow-list)
       if (!isCard) {
-        const genres = Array.isArray(p?.genres) ? p.genres : [];
         if (!genres.length) {
           skipMissingGenres++;
           continue;
@@ -659,11 +659,7 @@ async function runImportAll({ logger = console } = {}) {
         }
 
         const platformCanonical = normalizePlatform(p.platform);
-        if (
-          !platformCanonical ||
-          (!allowedPlatformMatch(platformCanonical) &&
-            !p.tags?.includes("prepaid"))
-        ) {
+        if (!platformCanonical || !allowedPlatformMatch(platformCanonical)) {
           skipPlatform++;
           continue;
         }
