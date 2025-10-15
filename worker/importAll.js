@@ -444,161 +444,218 @@ async function runImportAll({ logger = console } = {}) {
       // avoid account resale listings.
       const nm = p?.name || "";
       const isCardItem = Array.isArray(p?.tags) && p.tags.includes("prepaid");
-      if (!isCardItem) {
-        if (!NAME_REQUIRE_RE.test(nm) || NAME_EXCLUDE_RE.test(nm)) {
-          skipName++;
-          continue;
-        }
-      } else {
-        // For cards: only exclude names that include "account"
-        if (NAME_EXCLUDE_RE.test(nm)) {
-          skipName++;
-          continue;
-        }
+      // --- Helper: normalize titles for robust matching ---
+      function normalizeTitle(s) {
+        return String(s)
+          .toLowerCase()
+          .replace(/[’‘]/g, "'")
+          .replace(/[–—]/g, "-")
+          .replace(/\s+/g, " ")
+          .trim();
       }
 
-      // --- Whitelisted brands ---
-      const ALLOWED_BRANDS = [
-        "game pass",
-        "playstation",
-        "discord nitro",
-        "discord server boost",
-        "crunchyroll",
-        "steam",
-        "nintendo",
-        "ea",
-        "apple",
-        "google play",
-        "civitai",
-        "roblox",
-        "world of warcraft",
-        "iTunes",
-        "spotify",
-        "blizzard",
-        "razer gold",
-        "ea sports fc 25 points",
-        "black ops 6 cod points",
-        "play cabal",
-        "minecraft minecoins",
-        "youtube premium",
-        "xbox live",
-        "league of legends",
-        "free fire",
-        "pubg mobile",
-        "fortnite",
-        "marvel rivals",
-        "overwatch",
-        "call of duty mobile",
-        "grand theft auto online shark card",
-        "destiny 2 silver",
-        "apex legends apex coins",
-        "red dead redemption 2 online gold bars",
-        "rainbow six siege credits pack",
+      // --- Card title allowlist (exact title match, case/whitespace/quote tolerant) ---
+      const CARD_TITLE_WHITELIST = [
+        "Discord Nitro - 1 Year Subscription Code",
+        "Discord Nitro - 1 Month Subscription Code",
+        "Discord Server - 14x Boost - 3 Months",
+        "Discord Server - 14x Boost - 1 Month",
+        "Discord Server - 14x Boost - 1 Week",
+        "Discord Server - 1000 Offline User Boost - 1 Month",
+        "Discord Server - 1000 Online User Boost - 1 Month",
+        "Discord Server - 14x Boost - 12 Months",
+        "Discord Server - 14x Boost - 2 Months",
+        "Discord Server - 7x Boost - 1 Month",
+        "Discord Server - 7x Boost - 3 Months",
+
+        "Crunchyroll - 1 Month Fan Subscription",
+        "Crunchyroll - 3 Months Fan Subscription",
+        "Crunchyroll - 12 Months Fan Subscription",
+        "Crunchyroll Premium Mega Fan Plan 1 Year Subscription",
+
+        "EA Play - 1 Month Subscription XBOX One / Xbox Series X|S CD Key",
+        "EA Play 12 Months Subscription XBOX One / Xbox Series X|S CD Key",
+        "EA Play - 6 Months Subscription XBOX One / Xbox Series X|S CD Key",
+        "EA Play Pro - 3 Month Subscription Key",
+
+        "Civitai.com 10k Buzz Gift Card",
+        "Civitai.com 25k Buzz Gift Card",
+        "Civitai.com 50k Buzz Gift Card",
+        "Civitai.com 3-month Bronze Membership Gift Card",
+        "Civitai.com 6-month Bronze Membership Gift Card",
+        "Civitai.com 12-month Bronze Membership Gift Card",
+        "Civitai.com 3-month Silver Membership Gift Card",
+        "Civitai.com 6-month Silver Membership Gift Card",
+        "Civitai.com 12-month Silver Membership Gift Card",
+        "Civitai.com 3-month Gold Membership Gift Card",
+        "Civitai.com 6-month Gold Membership Gift Card",
+        "Civitai.com 12-month Gold Membership Gift Card",
+
+        "Roblox Game eCard $10",
+        "Roblox Game eCard $25",
+        "Roblox Game eCard $15",
+        "Roblox Game eCard $20",
+        "Roblox Game eCard $50",
+        "Roblox Game eCard $5",
+        "Roblox Game eCard $1.5",
+
+        "Razer Gold USD 5 Global",
+        "Razer Gold USD 20 Global",
+        "Razer Gold USD 50 Global",
+        "Razer Gold USD 100 Global",
+        "Razer Gold USD 300 Global",
+        "Razer Gold USD 200 Global",
+        "Razer Gold USD 25 Global",
+        "Razer Gold $1 Global",
+        "Razer Gold $2 Global",
+        "Razer Gold USD 30 Global",
+        "Razer Gold USD 10 Global",
+        "Razer Gold USD 13 Global",
+        "Razer Gold USD 16 Global",
+
+        "EA SPORTS FC 26 - 1050 FC Points PC EA App CD Key",
+        "EA SPORTS FC 26 - 2800 FC Points PC EA App CD Key",
+        "EA SPORTS FC 26 - 5900 FC Points PC EA App CD Key",
+        "EA SPORTS FC 26 - 1050 FC Points XBOX One / Xbox Series X|S CD Key",
+        "EA SPORTS FC 26 - 2800 FC Points XBOX One / Xbox Series X|S CD Key",
+        "EA SPORTS FC 26 - 5900 FC Points XBOX One / Xbox Series X|S CD Key",
+        "EA SPORTS FC 26 - 12000 FC Points XBOX One / Xbox Series X|S CD Key",
+        "EA SPORTS FC 26 - 18500 FC Points XBOX One / Xbox Series X|S CD Key",
+
+        "Steam Gift Card $50 Global Activation Code",
+        "Steam Gift Card $20 Global Activation Code",
+        "Steam Gift Card $5 Global Activation Code",
+        "Steam Gift Card $10 Global Activation Code",
+        "Steam Gift Card $2 Global Activation Code",
+        "Steam Gift Card $100 Global Activation Code",
+        "Steam Gift Card $1 Global Activation Code",
+        "Steam Gift Card $30 Global Activation Code",
+        "Steam Gift Card $15 Global Activation Code",
+        "Steam Gift Card $12 Global Activation Code",
+        "Steam Gift Card $4 Global Activation Code",
+        "Steam Gift Card $6 Global Activation Code",
+        "Steam Gift Card $16 Global Activation Code",
+        "Steam Gift Card $26 Global Activation Code",
+        "Steam Gift Card $33 Global Activation Code",
+        "Steam Gift Card $40 Global Activation Code",
+        "Steam Gift Card $110 Global Activation Code",
+        "Steam Gift Card $9 Global Activation Code",
+        "Steam Gift Card $115 Global Activation Code",
+        "Steam Gift Card $45 Global Activation Code",
+
+        "Minecraft Minecoins Pack - 3500 Coins CD Key",
+        "Minecraft Minecoins Pack - 330 Coins CD Key",
+        "Minecraft Minecoins Pack - 1000 Coins CD Key",
+        "Minecraft Minecoins Pack - 500 Coins CD Key",
+
+        "XBOX Live 800 Points",
+
+        "Garena Free Fire - 100 + 10 Diamonds CD Key",
+        "Garena Free Fire - 1080 + 108 Diamonds CD Key",
+        "Garena Free Fire - 210 + 21 Diamonds CD Key",
+        "Garena Free Fire - 530 + 53 Diamonds CD Key",
+        "Garena Free Fire - 2200 + 220 Diamonds CD Key",
+        "Garena Free Fire - 2200 + 220 Diamonds Reidos Voucher",
+        "Garena Free Fire - 1080 + 108 Diamonds Reidos Voucher",
+        "Garena Free Fire - 530 + 53 Diamonds Reidos Voucher",
+        "Garena Free Fire - 210 + 21 Diamonds Reidos Voucher",
+        "Garena Free Fire - 100 + 10 Diamonds Reidos Voucher",
+
+        "PUBG Mobile - 600 + 60 UC CD Key",
+        "PUBG Mobile - 1500 + 300 UC CD Key",
+        "PUBG Mobile - 3000 + 850 UC CD Key",
+        "PUBG Mobile - 300 + 25 UC CD Key",
+        "PUBG Mobile - 60 UC CD Key",
+        "PUBG Mobile - 6000 + 2100 UC CD Key",
+        "PUBG Mobile - 12000 + 4200 UC CD Key",
+        "PUBG Mobile - 18000 + 6300 UC CD Key",
+        "PUBG Mobile - 24000 + 8400 UC CD Key",
+        "PUBG Mobile - 30000 + 10500 UC CD Key",
+        "PUBG Mobile - 10 UC CD Key",
+
+        "Fortnite USD 15 PC Epic Games Gift Card",
+        "Fortnite USD 30 PC Epic Games Gift Card",
+        "Fortnite USD 50 PC Epic Games Gift Card",
+        "Fortnite USD 100 PC Epic Games Gift Card",
+        "Fortnite USD 25 PC Epic Games Gift Card",
+        "Fortnite USD 75 PC Epic Games Gift Card",
+
+        "Grand Theft Auto Online - $10,000,000 Megalodon Shark Cash Card PC Activation Code",
+
+        "Apex Legends - 4350 Apex Coins EA App CD Key",
+        "Apex Legends - 1000 Apex Coins XBOX One CD Key",
+        "Apex Legends - 1000 Apex Coins EA App CD Key",
+
+        "CSGO-Skins $10 Gift Card",
+        "CSGO-Skins $2 Gift Card",
+        "CSGO-Skins $5 Gift Card",
+
+        "Tom Clancy's Rainbow Six Siege - 2670 Credits Pack XBOX One CD Key",
       ];
 
-      // --- Helper functions ---
-      function isSteamName(name) {
-        return /\bSteam\b/i.test(name);
+      // Precompute normalized set for O(1) lookups
+      const CARD_TITLE_SET = new Set(CARD_TITLE_WHITELIST.map(normalizeTitle));
+      function isWhitelistedCard(name) {
+        return CARD_TITLE_SET.has(normalizeTitle(name));
       }
 
-      function mentionsUS(name) {
-        return /\bUS\b|\bU\.S\.A?\.?\b|\$\b|\bUnited States\b/i.test(name);
-      }
+      // --- Banned merchants are kept (applied globally) ---
+      const BANNED_SOURCES = [
+        "RBLXReaper",
+        "SteamLevelU",
+        "RustEasy",
+        "GGHeaven",
+        "ROCheap",
+        "AliveAI",
+        "Earnweb",
+        "BeastUnbox",
+      ];
 
-      function mentionsARS(name) {
-        return /\bARS\b/i.test(name);
-      }
+      // --- Optional: keep your brand list if used elsewhere ---
 
-      // Match any other country (UK, EU, FR, etc.)
-      function mentionsOtherCountry(name) {
-        // Basic pattern for any 2–3 letter region or common region words
-        const OTHER_COUNTRY_RE =
-          /\b(EU|UK|FR|DE|CA|LATAM|BR|MEX|RU|CN|SEA|AUS|NZ|JP|KR|TR|PL|ES|IT|IN|AFRICA|MENA|ASIA|EUROPE)\b/i;
-        return OTHER_COUNTRY_RE.test(name) && !mentionsUS(name);
-      }
-
-      // Should skip if Steam non-US or ARS or other country
-      function shouldSkipForSteamNonUS(name) {
-        return (
-          (isSteamName(name) && !mentionsUS(name)) ||
-          mentionsARS(name) ||
-          mentionsOtherCountry(name)
-        );
-      }
-      function isAllowedBrand(name) {
-        const n = name.toLowerCase();
-        return ALLOWED_BRANDS.some((b) => n.includes(b));
-      }
-      // Check if product name contains an allowed brand
-      if (isCardItem) {
-        // --- Inside your processResults() loop ---
-
-        const BANNED_SOURCES = [
-          "RBLXReaper",
-          "SteamLevelU",
-          "RustEasy",
-          "GGHeaven",
-          "ROCheap",
-          "AliveAI",
-          "Earnweb",
-          "BeastUnbox",
-        ];
-
+      // --- Inside your processing loop ---
+      {
         const lower = nm.toLowerCase();
 
-        // 🚫 Skip banned merchants regardless of brand
+        // 🚫 Skip banned merchants
         if (BANNED_SOURCES.some((bad) => lower.includes(bad.toLowerCase()))) {
           skipName++;
           continue;
         }
 
-        // ✅ Brand whitelist filter
-        if (!isAllowedBrand(nm) || nm.includes("BeastUnbox") || nm.includes()) {
-          if (!nm.toLowerCase().includes("iTunes".toLowerCase())) {
+        // ✅ Decide if this item is a "card" purely by title match
+        const isCard = isWhitelistedCard(nm);
+
+        // 🔎 Name filters apply to non-card items only
+        if (!isCard) {
+          if (!NAME_REQUIRE_RE.test(nm) || NAME_EXCLUDE_RE.test(nm)) {
             skipName++;
             continue;
           }
         }
 
-        // 🚫 Skip if non-US region mentioned
+        // 🚫 Steam non-US skip remains (global)
         if (shouldSkipForSteamNonUS(nm)) {
           skipRegion++;
           continue;
         }
-      }
 
-      // continue saving or updating ops as before
-
-      if (isCardItem && shouldSkipForSteamNonUS(nm)) {
-        skipName++;
-        continue;
-      }
-      // Region
-      // Region enforcement: by default we allow only products whose regionId
-      // is in the ALLOWED_REGION_IDS list.  Previously, prepaid items were
-      // exempt from this check which allowed region‑locked gift cards (e.g.
-      // "US Activation Code", "EUROPE - all countries") into the catalog.
-      // To limit cards to globally redeemable codes we still perform a
-      // region check for prepaid products: cards must be flagged as global
-      // via isGlobalCard().  If neither condition is met the product is
-      // skipped and counted as a region skip.
-      {
-        const regionOk = ALLOWED_REGION_IDS.includes(Number(p?.regionId));
-        const isCard = Array.isArray(p?.tags) && p.tags.includes("prepaid");
-        if (isCard) {
-          // For cards: always enforce global/reg‑free requirement.  Even if the
-          // regionId is in the allowed list, we don't want EU/US/region‑locked
-          // gift cards.  If not global, skip.
-          if (!isGlobalCard(p)) {
-            skipRegion++;
-            continue;
-          }
-        } else {
-          // Non‑card products must be in the allowed region list
+        // 🌍 Region: normal enforcement only — no special card rules and no prepaid tag checks
+        {
+          const regionOk = ALLOWED_REGION_IDS.includes(Number(p?.regionId));
           if (!regionOk) {
             skipRegion++;
             continue;
           }
+        }
+
+        // 🏷️ Mark as card for downstream queries/UI (no reliance on tags/prepaid)
+        p.remote = p.remote || {};
+        if (isCard) {
+          p.remote.isCard = true;
+        } else {
+          // optional: ensure it's not incorrectly flagged
+          if (p.remote.isCard === true) delete p.remote.isCard;
         }
       }
 
