@@ -34,6 +34,7 @@ const CONCURRENCY = Number(process.env.SYNC_CONCURRENCY || 10);
 // ----------------------------- Strict Business -----------------------------
 const ALLOWED_REGION_IDS = [3, 5, 19, 21, 24, 28, 30, 34, 40, 55, 56, 58, 80];
 
+// Platforms allow-list (canonical names).  Matches importAll.js
 const ALLOWED_PLATFORMS = [
   "PC Epic Games",
   "PC Battle.net",
@@ -48,6 +49,11 @@ const ALLOWED_PLATFORMS = [
   "Xbox 360",
   "Xbox One",
   "Xbox Series X|S",
+  // Card & console platforms (global cards)
+  "PlayStation",
+  "Nintendo",
+  "Android",
+  "Other",
 ];
 
 const ALLOWED_GENRES = [
@@ -95,13 +101,185 @@ const BLACKLIST_GENRES = [
 const NAME_REQUIRE_RE = /\bcd\s*key\b/i;
 const NAME_EXCLUDE_RE = /\baccount\b/i;
 
-// ------------------------ Normalizers & helpers ----------------------------
-function normStr(s) {
-  return String(s || "")
+// ----------------------------- Additional gates (cards & bans) -----------------------------
+// Merchants to skip entirely (case-insensitive substring match)
+const BANNED_SOURCES = [
+  "RBLXReaper",
+  "SteamLevelU",
+  "RustEasy",
+  "GGHeaven",
+  "ROCheap",
+  "AliveAI",
+  "Earnweb",
+  "BeastUnbox",
+];
+
+// Card title allowlist (exact title match, case/whitespace/quote tolerant).  If a
+// product's name is found in this set, it's treated as a card and many strict
+// gates (name, genre, platform, price) are relaxed.  Keep this list in
+// sync with importAll.js.
+const CARD_TITLE_WHITELIST = [
+  "Discord Nitro - 1 Year Subscription Code",
+  "Discord Nitro - 1 Month Subscription Code",
+  "Discord Server - 14x Boost - 3 Months",
+  "Discord Server - 14x Boost - 1 Month",
+  "Discord Server - 14x Boost - 1 Week",
+  "Discord Server - 1000 Offline User Boost - 1 Month",
+  "Discord Server - 1000 Online User Boost - 1 Month",
+  "Discord Server - 14x Boost - 12 Months",
+  "Discord Server - 14x Boost - 2 Months",
+  "Discord Server - 7x Boost - 1 Month",
+  "Discord Server - 7x Boost - 3 Months",
+
+  "Crunchyroll - 1 Month Fan Subscription",
+  "Crunchyroll - 3 Months Fan Subscription",
+  "Crunchyroll - 12 Months Fan Subscription",
+  "Crunchyroll Premium Mega Fan Plan 1 Year Subscription",
+
+  "EA Play - 1 Month Subscription XBOX One / Xbox Series X|S CD Key",
+  "EA Play 12 Months Subscription XBOX One / Xbox Series X|S CD Key",
+  "EA Play - 6 Months Subscription XBOX One / Xbox Series X|S CD Key",
+  "EA Play Pro - 3 Month Subscription Key",
+
+  "Civitai.com 10k Buzz Gift Card",
+  "Civitai.com 25k Buzz Gift Card",
+  "Civitai.com 50k Buzz Gift Card",
+  "Civitai.com 3-month Bronze Membership Gift Card",
+  "Civitai.com 6-month Bronze Membership Gift Card",
+  "Civitai.com 12-month Bronze Membership Gift Card",
+  "Civitai.com 3-month Silver Membership Gift Card",
+  "Civitai.com 6-month Silver Membership Gift Card",
+  "Civitai.com 12-month Silver Membership Gift Card",
+  "Civitai.com 3-month Gold Membership Gift Card",
+  "Civitai.com 6-month Gold Membership Gift Card",
+  "Civitai.com 12-month Gold Membership Gift Card",
+
+  "Roblox Game eCard $10",
+  "Roblox Game eCard $25",
+  "Roblox Game eCard $15",
+  "Roblox Game eCard $20",
+  "Roblox Game eCard $50",
+  "Roblox Game eCard $5",
+  "Roblox Game eCard $1.5",
+
+  "Razer Gold USD 5 Global",
+  "Razer Gold USD 20 Global",
+  "Razer Gold USD 50 Global",
+  "Razer Gold USD 100 Global",
+  "Razer Gold USD 300 Global",
+  "Razer Gold USD 200 Global",
+  "Razer Gold USD 25 Global",
+  "Razer Gold $1 Global",
+  "Razer Gold $2 Global",
+  "Razer Gold USD 30 Global",
+  "Razer Gold USD 10 Global",
+  "Razer Gold USD 13 Global",
+  "Razer Gold USD 16 Global",
+
+  "EA SPORTS FC 26 - 1050 FC Points PC EA App CD Key",
+  "EA SPORTS FC 26 - 2800 FC Points PC EA App CD Key",
+  "EA SPORTS FC 26 - 5900 FC Points PC EA App CD Key",
+  "EA SPORTS FC 26 - 1050 FC Points XBOX One / Xbox Series X|S CD Key",
+  "EA SPORTS FC 26 - 2800 FC Points XBOX One / Xbox Series X|S CD Key",
+  "EA SPORTS FC 26 - 5900 FC Points XBOX One / Xbox Series X|S CD Key",
+  "EA SPORTS FC 26 - 12000 FC Points XBOX One / Xbox Series X|S CD Key",
+  "EA SPORTS FC 26 - 18500 FC Points XBOX One / Xbox Series X|S CD Key",
+
+  "Steam Gift Card $50 Global Activation Code",
+  "Steam Gift Card $20 Global Activation Code",
+  "Steam Gift Card $5 Global Activation Code",
+  "Steam Gift Card $10 Global Activation Code",
+  "Steam Gift Card $2 Global Activation Code",
+  "Steam Gift Card $100 Global Activation Code",
+  "Steam Gift Card $1 Global Activation Code",
+  "Steam Gift Card $30 Global Activation Code",
+  "Steam Gift Card $15 Global Activation Code",
+  "Steam Gift Card $12 Global Activation Code",
+  "Steam Gift Card $4 Global Activation Code",
+  "Steam Gift Card $6 Global Activation Code",
+  "Steam Gift Card $16 Global Activation Code",
+  "Steam Gift Card $26 Global Activation Code",
+  "Steam Gift Card $33 Global Activation Code",
+  "Steam Gift Card $40 Global Activation Code",
+  "Steam Gift Card $110 Global Activation Code",
+  "Steam Gift Card $9 Global Activation Code",
+  "Steam Gift Card $115 Global Activation Code",
+  "Steam Gift Card $45 Global Activation Code",
+
+  "Minecraft Minecoins Pack - 3500 Coins CD Key",
+  "Minecraft Minecoins Pack - 330 Coins CD Key",
+  "Minecraft Minecoins Pack - 1000 Coins CD Key",
+  "Minecraft Minecoins Pack - 500 Coins CD Key",
+
+  "XBOX Live 800 Points",
+
+  "Garena Free Fire - 100 + 10 Diamonds CD Key",
+  "Garena Free Fire - 1080 + 108 Diamonds CD Key",
+  "Garena Free Fire - 210 + 21 Diamonds CD Key",
+  "Garena Free Fire - 530 + 53 Diamonds CD Key",
+  "Garena Free Fire - 2200 + 220 Diamonds CD Key",
+  "Garena Free Fire - 2200 + 220 Diamonds Reidos Voucher",
+  "Garena Free Fire - 1080 + 108 Diamonds Reidos Voucher",
+  "Garena Free Fire - 530 + 53 Diamonds Reidos Voucher",
+  "Garena Free Fire - 210 + 21 Diamonds Reidos Voucher",
+  "Garena Free Fire - 100 + 10 Diamonds Reidos Voucher",
+
+  "PUBG Mobile - 600 + 60 UC CD Key",
+  "PUBG Mobile - 1500 + 300 UC CD Key",
+  "PUBG Mobile - 3000 + 850 UC CD Key",
+  "PUBG Mobile - 300 + 25 UC CD Key",
+  "PUBG Mobile - 60 UC CD Key",
+  "PUBG Mobile - 6000 + 2100 UC CD Key",
+  "PUBG Mobile - 12000 + 4200 UC CD Key",
+  "PUBG Mobile - 18000 + 6300 UC CD Key",
+  "PUBG Mobile - 24000 + 8400 UC CD Key",
+  "PUBG Mobile - 30000 + 10500 UC CD Key",
+  "PUBG Mobile - 10 UC CD Key",
+
+  "Fortnite USD 15 PC Epic Games Gift Card",
+  "Fortnite USD 30 PC Epic Games Gift Card",
+  "Fortnite USD 50 PC Epic Games Gift Card",
+  "Fortnite USD 100 PC Epic Games Gift Card",
+  "Fortnite USD 25 PC Epic Games Gift Card",
+  "Fortnite USD 75 PC Epic Games Gift Card",
+
+  "Grand Theft Auto Online - $10,000,000 Megalodon Shark Cash Card PC Activation Code",
+
+  "Apex Legends - 4350 Apex Coins EA App CD Key",
+  "Apex Legends - 1000 Apex Coins XBOX One CD Key",
+  "Apex Legends - 1000 Apex Coins EA App CD Key",
+
+  "CSGO-Skins $10 Gift Card",
+  "CSGO-Skins $2 Gift Card",
+  "CSGO-Skins $5 Gift Card",
+
+  "Tom Clancy's Rainbow Six Siege - 2670 Credits Pack XBOX One CD Key",
+];
+
+function normalizeTitle(s) {
+  return String(s)
     .toLowerCase()
-    .replace(/[_\-]+/g, " ")
+    .replace(/[’‘]/g, "'")
+    .replace(/[–—]/g, "-")
     .replace(/\s+/g, " ")
     .trim();
+}
+const CARD_TITLE_SET = new Set(CARD_TITLE_WHITELIST.map(normalizeTitle));
+function isWhitelistedCard(name) {
+  return CARD_TITLE_SET.has(normalizeTitle(name));
+}
+
+// ------------------------ Normalizers & helpers ----------------------------
+function normStr(s) {
+  return (
+    String(s || "")
+      .toLowerCase()
+      // Treat underscores, hyphens and plus signs as separators so that
+      // labels like "PC+Steam" normalize correctly.
+      .replace(/[_\-+]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
 }
 
 const PLATFORM_SYNONYMS = new Map([
@@ -143,6 +321,37 @@ const PLATFORM_SYNONYMS = new Map([
   ["xbox series x", "xbox series x|s"],
   ["xbox series s", "xbox series x|s"],
   ["xbox 360", "xbox 360"],
+  // PlayStation family
+  ["playstation", "playstation"],
+  ["playstation 4", "playstation"],
+  ["playstation 3", "playstation"],
+  ["ps", "playstation"],
+  ["ps4", "playstation"],
+  ["ps3", "playstation"],
+  ["playstation network", "playstation"],
+  ["psn", "playstation"],
+
+  // Nintendo / eShop
+  ["nintendo", "nintendo"],
+  ["nintendo switch", "nintendo"],
+  ["nintendo eshop", "nintendo"],
+  ["eshop", "nintendo"],
+  ["switch", "nintendo"],
+
+  // Mobile & digital stores
+  ["android", "android"],
+  ["google play", "android"],
+  ["play", "android"],
+  ["play store", "android"],
+  ["ios", "itunes"],
+  ["itunes", "itunes"],
+  ["itunes card", "itunes"],
+  ["app store", "itunes"],
+  ["app store & itunes", "itunes"],
+  ["apple", "itunes"],
+
+  // Misc / fallback
+  ["other", "other"],
 ]);
 
 function normalizePlatform(upstreamPlatform) {
@@ -198,6 +407,22 @@ function allowedGenreMatch(arr) {
 function bannedGenrePresent(arr) {
   if (!Array.isArray(arr) || arr.length === 0) return false;
   return arr.some((g) => BLACKLIST_GENRES_NORMALIZED.has(normalizeGenre(g)));
+}
+
+// ----------------------------- Pricing helpers ----------------------------
+// Compute the minimum EUR price available for a product, considering both
+// product.price and any offer prices.  Returns null if none are valid.
+function computeMinEUR(up) {
+  const pool = [];
+  const p = Number(up?.price);
+  if (Number.isFinite(p) && p > 0) pool.push(p);
+  if (Array.isArray(up?.offers)) {
+    for (const o of up.offers) {
+      const op = Number(o?.price);
+      if (Number.isFinite(op) && op > 0) pool.push(op);
+    }
+  }
+  return pool.length ? Math.min(...pool) : null;
 }
 
 // ------------------------------ HTTP retry --------------------------------
@@ -282,28 +507,49 @@ async function run() {
 
     const includeIfAllowed = (p) => {
       const nm = p?.name || "";
-      if (!NAME_REQUIRE_RE.test(nm) || NAME_EXCLUDE_RE.test(nm)) return false;
+      const lower = nm.toLowerCase();
 
-      if (!ALLOWED_REGION_IDS.includes(Number(p?.regionId))) return false;
+      // 🚫 Skip banned merchants
+      if (
+        BANNED_SOURCES.some((bad) => lower.includes(bad.toLowerCase()))
+      ) {
+        return false;
+      }
+
+      // Decide if this product is a card via whitelist
+      const isCard = isWhitelistedCard(nm);
+
+      // Name rules apply only to non-card items
+      if (!isCard) {
+        if (!NAME_REQUIRE_RE.test(nm) || NAME_EXCLUDE_RE.test(nm)) {
+          return false;
+        }
+      }
+
+      // Region must be allowed
+      if (!ALLOWED_REGION_IDS.includes(Number(p?.regionId))) {
+        return false;
+      }
 
       const genres = Array.isArray(p?.genres) ? p.genres : [];
-      if (!genres.length) return false;
-      if (bannedGenrePresent(genres)) return false;
-      if (!allowedGenreMatch(genres)) return false;
-
-      const hasPlatform = !!p?.platform;
-      if (!hasPlatform) return false;
       const platformCanonical = normalizePlatform(p.platform);
-      if (!platformCanonical || !allowedPlatformMatch(platformCanonical))
-        return false;
+      const minEur = computeMinEUR(p);
 
-      // Must have any EUR price (product or offers)
-      const hasPrice =
-        Number(p?.price) > 0 ||
-        (Array.isArray(p?.offers) &&
-          p.offers.some((o) => Number(o?.price) > 0));
-      if (!hasPrice) return false;
+      // For non-card items, require genres, platform and price threshold
+      if (!isCard) {
+        if (!genres.length) return false;
+        if (bannedGenrePresent(genres)) return false;
+        if (!allowedGenreMatch(genres)) return false;
 
+        const hasPlatform = !!p?.platform;
+        if (!hasPlatform) return false;
+        if (!platformCanonical || !allowedPlatformMatch(platformCanonical))
+          return false;
+
+        // Price must exist and be below threshold for non-cards
+        if (minEur == null || minEur >= 130) return false;
+      }
+      // For card items we relax genre/platform/price gates (already skipped above)
       return true;
     };
 
