@@ -1,5 +1,4 @@
 services:
-  # 1) sync/run every 2 minutes
   - type: cron
     name: gw-sync-run
     runtime: image
@@ -11,13 +10,12 @@ services:
     envVars:
       - key: SYNC_BASE
         value: https://game-wise-backend.onrender.com
-    command: >
+    dockerCommand: >
       sh -lc '
       curl -fsS --retry 3 --retry-all-errors --retry-delay 5 --max-time 100
         "$SYNC_BASE/api/v1/sync/run"
       '
 
-  # 2) reconcile once per day (00:00 UTC)
   - type: cron
     name: gw-sync-reconcile
     runtime: image
@@ -25,11 +23,11 @@ services:
       url: curlimages/curl:8.10.1
     region: frankfurt
     plan: starter
-    schedule: "0 0 * * *"
+    schedule: "0 0 * * *" # once per day at 00:00 UTC
     envVars:
       - key: SYNC_BASE
         value: https://game-wise-backend.onrender.com
-    command: >
+    dockerCommand: >
       sh -lc '
       curl -fsS --retry 3 --retry-all-errors --retry-delay 5 --max-time 300
         "$SYNC_BASE/api/v1/sync/reconcile"
