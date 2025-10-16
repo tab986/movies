@@ -30,8 +30,7 @@ const limiter = rateLimit({
   message: "too many requests from this IP, try again later",
 });
 
-app.use(limiter);
-
+// Mount sync control endpoints under /api/v1/sync
 // app.use('/api', limiter)
 app.use(helmet());
 
@@ -53,6 +52,7 @@ app.use(
     credentials: false, // Cannot be true when origin is '*'
   })
 );
+
 // app.js or server.js
 app.set("trust proxy", true); // use x-forwarded-for as client IP
 
@@ -198,14 +198,16 @@ app.get("/api/cloudflare/last24h", async (req, res) => {
   return app._router.handle(req, res, require("express/lib/router/layer")());
 });
 
+app.use("/api/v1/sync", syncRoutes);
+
+app.use(limiter);
+
 app.use("/api/v1/users", userRoutes);
 
 app.use("/api/v1/dashboard", dashboardRoutes);
 app.use("/api/v1/orders", orderRoutes);
 app.use("/api/v1/products", productsRouter);
 
-// Mount sync control endpoints under /api/v1/sync
-app.use("/api/v1/sync", syncRoutes);
 // Mount webhooks for Kinguin events
 app.use("/webhooks", webhooks);
 // Serve your local cached catalog under /api/v1/catalog
