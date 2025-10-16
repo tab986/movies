@@ -1,36 +1,49 @@
+# render.yaml
+envVarGroups:
+  - name: gamewise-secrets
+    envVars: [] # create the group empty; fill values in the dashboard
+
 services:
   - type: cron
     name: gw-sync-run
     runtime: image
-    image:
-      url: curlimages/curl:8.10.1
+    image: { url: curlimages/curl:8.10.1 }
     region: frankfurt
     plan: starter
     schedule: "*/2 * * * *"
     envVars:
-      - key: SYNC_BASE
-        value: https://game-wise-backend.onrender.com
+      - fromGroup: gamewise-secrets
     dockerCommand:
-      - sh
-      - -lc
-      - |
-        curl -fsS --retry 3 --retry-all-errors --retry-delay 5 --max-time 100 \
-          "$SYNC_BASE/api/v1/sync/run"
+      - --fail
+      - --show-error
+      - --silent
+      - --retry
+      - "3"
+      - --retry-all-errors
+      - --retry-delay
+      - "5"
+      - --max-time
+      - "100"
+      - https://game-wise-backend.onrender.com/api/v1/sync/run
 
   - type: cron
     name: gw-sync-reconcile
     runtime: image
-    image:
-      url: curlimages/curl:8.10.1
+    image: { url: curlimages/curl:8.10.1 }
     region: frankfurt
     plan: starter
-    schedule: "0 0 * * *" # once per day at 00:00 UTC
+    schedule: "0 0 * * *"
     envVars:
-      - key: SYNC_BASE
-        value: https://game-wise-backend.onrender.com
+      - fromGroup: gamewise-secrets
     dockerCommand:
-      - sh
-      - -lc
-      - |
-        curl -fsS --retry 3 --retry-all-errors --retry-delay 5 --max-time 300 \
-          "$SYNC_BASE/api/v1/sync/reconcile"
+      - --fail
+      - --show-error
+      - --silent
+      - --retry
+      - "3"
+      - --retry-all-errors
+      - --retry-delay
+      - "5"
+      - --max-time
+      - "300"
+      - https://game-wise-backend.onrender.com/api/v1/sync/reconcile
