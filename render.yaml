@@ -1,0 +1,44 @@
+# render.yaml
+services:
+  # 1) sync/run every 2 minutes
+  - type: cron
+    name: gw-sync-run
+    runtime: image
+    image:
+      url: curlimages/curl:8.10.1
+    region: frankfurt # closer to Iraq; change if you prefer
+    plan: starter
+    schedule: "*/2 * * * *" # every 2 minutes (cron uses UTC)
+    envVars:
+      - key: SYNC_BASE
+        value: https://game-wise-backend.onrender.com
+      # Optional: secure your endpoint with a header or query token
+      # - key: SYNC_TOKEN
+      #   sync: false
+    startCommand: >
+      sh -lc '
+      curl -fsS --retry 3 --retry-all-errors --retry-delay 5 --max-time 100
+        "$SYNC_BASE/api/v1/sync/run"
+        # -H "X-Job-Token: $SYNC_TOKEN"
+      '
+
+  # 2) sync/reconcile on a slower cadence (change as you like)
+  - type: cron
+    name: gw-sync-reconcile
+    runtime: image
+    image:
+      url: curlimages/curl:8.10.1
+    region: frankfurt
+    plan: starter
+    schedule: "0 0 * * *" # every 15 minutes (edit to what you want)
+    envVars:
+      - key: SYNC_BASE
+        value: https://game-wise-backend.onrender.com
+      # - key: SYNC_TOKEN
+      #   sync: false
+    startCommand: >
+      sh -lc '
+      curl -fsS --retry 3 --retry-all-errors --retry-delay 5 --max-time 300
+        "$SYNC_BASE/api/v1/sync/reconcile"
+        # -H "X-Job-Token: $SYNC_TOKEN"
+      '
