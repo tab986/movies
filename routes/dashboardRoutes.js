@@ -57,22 +57,22 @@ const [uploadAdImageUpdate, processAdImageUpdate] =
     isRequiredOnCreate: false, // optional on PATCH
   });
 
-// router
-//   .route("/ads")
-//   .get(adsControllers.getAds)
-//   .post(
-//     processAdImage[0],
-//     parseJsonBody,
-//     processAdImage[1],
-//     adsControllers.createAd
-//   );
+router
+  .route("/ads")
+  .get(adsControllers.getAds)
+  .post(
+    processAdImage[0],
+    parseJsonBody,
+    processAdImage[1],
+    adsControllers.createAd
+  );
 
-// router
-//   .route("/ads/:adId")
-//   .delete(adsControllers.deleteAd)
-//   .get(adsControllers.getAd)
+router
+  .route("/ads/:adId")
+  .delete(adsControllers.deleteAd)
+  .get(adsControllers.getAd)
 
-//   .patch(uploadAdImageUpdate, processAdImageUpdate, adsControllers.updateAd);
+  .patch(uploadAdImageUpdate, processAdImageUpdate, adsControllers.updateAd);
 //products
 router.get("/products", productsControllers.listProducts);
 

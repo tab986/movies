@@ -14,6 +14,7 @@ const adSchema = new mongoose.Schema(
       type: String,
     },
     string: { type: String },
+    position: { type: String },
     active: {
       type: Boolean,
       default: true,
