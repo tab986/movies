@@ -235,6 +235,8 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
 
       inStock: p.derived?.inStock,
       regionId: p.remote?.regionId,
+      regionalLimitations: p.remote?.regionalLimitations,
+      countryLimitation: p.remote?.countryLimitation,
       tags: p.remote?.tags,
       platform: p.remote?.platform,
       qty: p.remote?.qty,
@@ -300,6 +302,8 @@ exports.getProduct = catchAsyncErrors(async (req, res, next) => {
       inStock: p.derived?.inStock,
       regionId: p.remote?.regionId,
       platform: p.remote?.platform,
+      regionalLimitations: p.remote?.regionalLimitations,
+      countryLimitation: p.remote?.countryLimitation,
       qty: p.remote?.qty,
       updatedAt: p.remote?.updatedAt,
       activationDetails: p.remote?.activationDetails,

@@ -677,6 +677,8 @@ async function runImportAll({ logger = console } = {}) {
       const derived = computeDerived(p); // uses minEur inside
       const remote = {
         name: p.name,
+        countryLimitation: p.countryLimitation,
+        regionalLimitations: p.regionalLimitations,
         description: p.description,
         images: p.images,
         price: Number(p.price) || null,

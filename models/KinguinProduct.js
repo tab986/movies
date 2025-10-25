@@ -23,6 +23,8 @@ const KinguinProductSchema = new mongoose.Schema(
 
     // Data straight from Kinguin (overwritten each sync)
     remote: {
+      regionalLimitations: mongoose.Schema.Types.Mixed,
+      countryLimitation: mongoose.Schema.Types.Mixed,
       name: String,
       description: String,
       images: mongoose.Schema.Types.Mixed,
