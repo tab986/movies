@@ -476,6 +476,74 @@ function computeDerived(up, { isCard = false } = {}) {
   return { inStock, priceMin };
 }
 
+// -----------------------------------------------------------------------------
+// Reprice all documents in the collection using current FX and fee settings.
+//
+// This helper walks through every stored KinguinProduct and recomputes
+// `derived.inStock` and `derived.priceMin` using the existing `remote`
+// information.  Without contacting the upstream API, this ensures that
+// adjustments to EUR_TO_IQD, IQD_MARKUP, CARD_FIXED_FEE_IQD or
+// CARD_PERCENT_FEE propagate to existing records.  It also applies the
+// banned merchant filter to each product's offers.  By running this after
+// every incremental sync, we guarantee that price fields stay consistent
+// regardless of whether upstream items change or FX and fee parameters change.
+async function repriceAll() {
+  // Use a cursor to avoid loading the entire collection into memory at once
+  const cursor = KinguinProduct.find({}, { _id: 1, remote: 1, derived: 1 })
+    .lean()
+    .cursor();
+
+  const bannedMerchants = BANNED_SOURCES.map((s) => s.toLowerCase());
+  const ops = [];
+  let processed = 0;
+  for await (const doc of cursor) {
+    processed++;
+    const remote = doc.remote || {};
+    const isCard = !!remote.isCard;
+
+    // Filter offers to exclude banned merchants when recomputing price
+    const offers = Array.isArray(remote.offers) ? remote.offers : [];
+    const filteredOffers = offers.filter((o) => {
+      const m = String(o?.merchantName || "").toLowerCase();
+      return !bannedMerchants.some((bad) => m.includes(bad));
+    });
+    // Rebuild a simplified upstream-like object for pricing
+    const up = {
+      price: remote.price,
+      qty: remote.qty,
+      offers: filteredOffers,
+    };
+    const derived = computeDerived(up, { isCard });
+    // Only update if values differ to minimize writes
+    const updates = {};
+    if (
+      doc.derived?.inStock !== derived.inStock ||
+      doc.derived?.priceMin !== derived.priceMin
+    ) {
+      updates["derived.inStock"] = derived.inStock;
+      updates["derived.priceMin"] = derived.priceMin;
+    }
+    if (Object.keys(updates).length) {
+      ops.push({
+        updateOne: {
+          filter: { _id: doc._id },
+          update: { $set: updates },
+        },
+      });
+    }
+
+    // Flush operations in batches to avoid memory buildup
+    if (ops.length >= 1000) {
+      await KinguinProduct.bulkWrite(ops, { ordered: false });
+      ops.length = 0;
+    }
+  }
+  if (ops.length) {
+    await KinguinProduct.bulkWrite(ops, { ordered: false });
+  }
+  console.log(`[repriceAll] processed=${processed}`);
+}
+
 // ------------------------------ HTTP retry --------------------------------
 async function getWithRetry(
   url,
@@ -547,7 +615,11 @@ function isoNowZ() {
   return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
-async function runOnce({ overlapMinutes = 2 } = {}) {
+async function runOnce({
+  // Allow callers or env to override overlap; default to 5 minutes
+  overlapMinutes = Number(process.env.SYNC_OVERLAP_MINUTES || 5),
+} = {}) {
+  // Always ensure we have a DB connection; track whether we opened it here
   const openedHere = await ensureConnection();
   const t0 = Date.now();
 
@@ -556,24 +628,32 @@ async function runOnce({ overlapMinutes = 2 } = {}) {
     const filters = profile?.filters || {};
     const fields = profile?.fields || [];
 
+    // Determine the last sync time from DB; if missing, create a window based on overlap
     const state = await SyncState.findOne({ key: "lastSync" }).lean();
-    let lastSyncISO = state?.value;
-    if (!lastSyncISO) {
-      lastSyncISO = new Date(Date.now() - overlapMinutes * 60 * 1000)
+    let sinceISO;
+    if (!state?.value) {
+      // First run or missing state: back off by overlap to avoid missing items
+      sinceISO = new Date(Date.now() - overlapMinutes * 60 * 1000)
+        .toISOString()
+        .replace(/\.\d{3}Z$/, "Z");
+    } else {
+      // Always subtract overlap on every run; ESA API uses strict comparison and clocks may drift
+      const last = new Date(state.value);
+      sinceISO = new Date(last.getTime() - overlapMinutes * 60 * 1000)
         .toISOString()
         .replace(/\.\d{3}Z$/, "Z");
     }
 
-    const head = await fetchPage(1, lastSyncISO, filters);
+    const head = await fetchPage(1, sinceISO, filters);
     const upstreamTotal = Number(head?.item_count || 0);
     const totalPages = Math.max(1, Math.ceil(upstreamTotal / PAGE_SIZE));
 
     console.log(
-      `[deltaSync] since=${lastSyncISO}, upstream_total=${upstreamTotal}, pages=${totalPages}`
+      `[deltaSync] since=${sinceISO}, upstream_total=${upstreamTotal}, pages=${totalPages}`
     );
 
-    let fetched = 0,
-      kept = 0;
+    let fetched = 0;
+    let kept = 0;
     let skipName = 0,
       skipRegion = 0,
       skipPlatform = 0,
@@ -583,6 +663,9 @@ async function runOnce({ overlapMinutes = 2 } = {}) {
       skipBannedGenre = 0,
       skipNoPrice = 0;
 
+    // Precompute a lower-case list of banned merchant substrings for filtering offers
+    const bannedMerchants = BANNED_SOURCES.map((s) => s.toLowerCase());
+
     async function processResults(results, label) {
       if (!Array.isArray(results) || !results.length) return;
       fetched += results.length;
@@ -590,22 +673,14 @@ async function runOnce({ overlapMinutes = 2 } = {}) {
       const ops = [];
       for (const p of results) {
         // STRICT gates
-        // Name and merchant checks
+        // Name gates and determination of card status
         const nm = p?.name || "";
-        const lower = nm.toLowerCase();
-        // 🚫 Skip banned merchants
-        if (
-          BANNED_SOURCES.some((bad) => lower.includes(bad.toLowerCase()))
-        ) {
-          skipName++;
-          continue;
-        }
 
-        // ✅ Decide if this item is a "card" by whitelist
+        // Determine if whitelisted card; name filters only apply to non-card items
         const isCard = isWhitelistedCard(nm);
 
-        // 🔎 Name filters apply to non-card items only
         if (!isCard) {
+          // Only enforce CD Key/Account filters on non-card products
           if (!NAME_REQUIRE_RE.test(nm) || NAME_EXCLUDE_RE.test(nm)) {
             skipName++;
             continue;
@@ -620,7 +695,6 @@ async function runOnce({ overlapMinutes = 2 } = {}) {
 
         const genres = Array.isArray(p?.genres) ? p.genres : [];
         const platformCanonical = normalizePlatform(p.platform);
-        const minEur = computeMinEUR(p);
 
         // For non-card items, apply genre/platform/price gates
         if (!isCard) {
@@ -646,16 +720,34 @@ async function runOnce({ overlapMinutes = 2 } = {}) {
             skipPlatform++;
             continue;
           }
+        }
 
-          // Price required and must be below threshold (non-card only)
+        // Prepare offers, filtering out banned merchants
+        const allOffers = Array.isArray(p.offers) ? p.offers : [];
+        const filteredOffers = allOffers.filter((o) => {
+          const m = String(o?.merchantName || "").toLowerCase();
+          return !bannedMerchants.some((bad) => m.includes(bad));
+        });
+
+        // Compute minimum EUR price considering only allowed offers
+        const minEur = computeMinEUR({
+          price: p.price,
+          offers: filteredOffers,
+        });
+
+        // For non-card items, price is required and must be below threshold
+        if (!isCard) {
           if (minEur == null || minEur >= 130) {
             skipNoPrice++;
             continue;
           }
         }
 
-        // Compute derived values (inStock, priceMin) with card awareness
-        const derived = computeDerived(p, { isCard });
+        // Compute derived values (inStock, priceMin) using filtered offers
+        const derived = computeDerived(
+          { price: p.price, qty: p.qty, offers: filteredOffers },
+          { isCard }
+        );
 
         // Build remote shape; include isCard flag for downstream UI/queries
         const remote = {
@@ -664,14 +756,12 @@ async function runOnce({ overlapMinutes = 2 } = {}) {
           images: p.images,
           price: Number(p.price) || null,
           qty: Number(p.qty) || 0,
-          offers: Array.isArray(p.offers)
-            ? p.offers.map((o) => ({
-                offerId: o.offerId,
-                price: Number(o.price) || null,
-                availableQty: Number(o.availableQty) || 0,
-                merchantName: o.merchantName || null,
-              }))
-            : [],
+          offers: filteredOffers.map((o) => ({
+            offerId: o.offerId,
+            price: Number(o.price) || null,
+            availableQty: Number(o.availableQty) || 0,
+            merchantName: o.merchantName || null,
+          })),
           regionId: Number(p.regionId) || null,
           tags: Array.isArray(p.tags) ? p.tags : [],
           // Mark as card for downstream queries/UI
@@ -722,8 +812,10 @@ async function runOnce({ overlapMinutes = 2 } = {}) {
       );
     }
 
+    // Process the first page synchronously
     await processResults(head?.results || [], "page 1");
 
+    // Process remaining pages concurrently
     let nextPage = 2;
     const workers = Array.from(
       { length: Math.min(CONCURRENCY, totalPages - 1) },
@@ -731,7 +823,7 @@ async function runOnce({ overlapMinutes = 2 } = {}) {
         while (true) {
           const page = nextPage++;
           if (page > totalPages) break;
-          const data = await fetchPage(page, lastSyncISO, filters);
+          const data = await fetchPage(page, sinceISO, filters);
           await processResults(data?.results || [], `page ${page}`);
         }
       }
@@ -739,6 +831,7 @@ async function runOnce({ overlapMinutes = 2 } = {}) {
 
     await Promise.all(workers);
 
+    // Write sync state with current timestamp to avoid skipping updates
     await SyncState.updateOne(
       { key: "lastSync" },
       { $set: { value: isoNowZ() } },
@@ -751,6 +844,11 @@ async function runOnce({ overlapMinutes = 2 } = {}) {
         `skipped={name:${skipName}, region:${skipRegion}, missingPlatform:${skipMissingPlatform}, platform:${skipPlatform}, ` +
         `missingGenres:${skipMissingGenres}, bannedGenre:${skipBannedGenre}, genre:${skipGenre}, noPrice:${skipNoPrice}}`
     );
+
+    // After syncing new items, recompute pricing for all existing documents to
+    // reflect current FX rates and card fees.  This ensures that changes in
+    // EUR_TO_IQD, IQD_MARKUP or card fee constants propagate immediately.
+    await repriceAll();
 
     return { updated: kept };
   } finally {

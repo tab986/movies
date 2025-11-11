@@ -34,8 +34,13 @@ const usersSchema = new mongoose.Schema(
     governorate: { type: String, enum: governorates },
     city: String,
     address: String,
+    email: {
+      type: String,
+      lowercase: true,
+    },
+    isActive: { type: Boolean, default: true },
     profileImage: String,
-    role: { type: String, enum: ["user", "admin"], default: "user" },
+    role: { type: String, enum: ["user", "admin", "seller"], default: "user" },
     password: {
       type: String,
       required: [true, "insert the user password"],

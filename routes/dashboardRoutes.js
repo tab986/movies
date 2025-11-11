@@ -21,6 +21,7 @@ const {
 const router = exp.Router({ mergeParams: true });
 router.route("/signup").post(authControllers.signup("admin"));
 router.route("/login").post(authControllers.login("admin"));
+router.route("/get-top-selling-games").get(statesController.getTopSellingGames);
 
 router.use(authControllers.protect);
 router.use(authControllers.onlyPermission("admin"));
@@ -90,12 +91,17 @@ router
   .patch(ordersControllers.updateOrder)
   .delete(ordersControllers.deleteOrder);
 
-const userProfile = require("../controllers/userProfileControllers");
+const userDashboardController = require("../controllers/userDashboardController");
+router
+  .route("/users")
+  .get(userDashboardController.getUsersAdmin)
+  .post(userDashboardController.createUserAdmin);
 
-router.get("/user", userProfile.getUsers);
-router.get("/user/:userId/details", userProfile.getMyProfileDetails);
-
-router.delete("/user/:userId", userProfile.adminDeleteUser);
+router
+  .route("/users/:id")
+  .get(userDashboardController.getUserAdmin)
+  .patch(userDashboardController.updateUserAdmin)
+  .delete(userDashboardController.deleteUserAdmin);
 
 // router.route("/getTotalCustomers").get(statesController.getTotalCustomers);
 // router.route("/getTotalRevenue").get(statesController.getTotalRevenue);

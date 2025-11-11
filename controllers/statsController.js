@@ -3,6 +3,204 @@ const Order = require("../models/Orders");
 const KinguinProduct = require("../models/KinguinProduct");
 const catchAsyncErrors = require("../utils/catchAsyncErrors");
 
+exports.getTopSellingGames = catchAsyncErrors(async (req, res) => {
+  const { from, to, topN = 10, tz = "Asia/Baghdad" } = req.query;
+
+  // Adjust status values if your system uses different "success" statuses
+  const statusMatch = { status: { $in: ["completed"] } };
+
+  const dateMatch =
+    from || to
+      ? {
+          createdAt: {
+            ...(from ? { $gte: new Date(from) } : {}),
+            ...(to ? { $lt: new Date(to) } : {}),
+          },
+        }
+      : {};
+
+  // Prefer the actual collection name (avoids hardcoding "kinguinproducts")
+  const PRODUCTS = KinguinProduct.collection.name;
+
+  const pipeline = [
+    { $match: { ...statusMatch, ...dateMatch } },
+
+    // Normalize to lineItems: either `products[]` or legacy single item
+    {
+      $addFields: {
+        lineItems: {
+          $cond: [
+            { $gt: [{ $size: { $ifNull: ["$products", []] } }, 0] },
+            "$products",
+            [
+              {
+                product: "$product",
+                quantity: { $ifNull: ["$quantity", 1] },
+                unitPrice: { $ifNull: ["$unitPrice", 0] },
+              },
+            ],
+          ],
+        },
+      },
+    },
+    { $unwind: "$lineItems" },
+
+    // Compute common fields
+    {
+      $addFields: {
+        productKid: {
+          $convert: {
+            input: "$lineItems.product",
+            to: "int",
+            onError: null,
+            onNull: null,
+          },
+        },
+        qty: { $ifNull: ["$lineItems.quantity", 1] },
+        lineRevenue: {
+          $multiply: [
+            { $ifNull: ["$lineItems.quantity", 1] },
+            { $ifNull: ["$lineItems.unitPrice", 0] },
+          ],
+        },
+      },
+    },
+    { $match: { productKid: { $ne: null } } },
+
+    // Aggregate sales by product
+    {
+      $group: {
+        _id: "$productKid",
+        units: { $sum: "$qty" },
+        revenue: { $sum: "$lineRevenue" },
+      },
+    },
+    { $sort: { units: -1, revenue: -1 } },
+    { $limit: Number(topN) },
+
+    // Enrich with product name + one image (override -> images[0] -> thumbnail -> cover)
+    {
+      $lookup: {
+        from: PRODUCTS,
+        let: { kid: "$_id" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $or: [
+                  { $eq: ["$_id", "$$kid"] },
+                  { $eq: ["$kinguinId", "$$kid"] },
+                ],
+              },
+            },
+          },
+          {
+            $project: {
+              _id: 0,
+              name: { $ifNull: ["$overrides.name", "$remote.name"] },
+              image: {
+                $let: {
+                  vars: {
+                    overImgs: { $ifNull: ["$overrides.images", []] },
+                    rImgs: { $ifNull: ["$remote.images", {}] },
+                    rThumbFlat: "$remote.thumbnail", // flat fallback (string)
+                    rCoverFlat: "$remote.cover", // flat fallback (string)
+                  },
+                  in: {
+                    // 1) overrides.images[0] (string or {thumbnail|url})
+                    $cond: [
+                      { $gt: [{ $size: "$$overImgs" }, 0] },
+                      {
+                        $let: {
+                          vars: { o0: { $arrayElemAt: ["$$overImgs", 0] } },
+                          in: {
+                            $cond: [
+                              { $eq: [{ $type: "$$o0" }, "object"] },
+                              { $ifNull: ["$$o0.thumbnail", "$$o0.url"] },
+                              "$$o0",
+                            ],
+                          },
+                        },
+                      },
+                      // else → 2) remote.images.screenshots[0] (prefer thumbnail)
+                      {
+                        $let: {
+                          vars: {
+                            ss: { $ifNull: ["$$rImgs.screenshots", []] },
+                            cov: { $ifNull: ["$$rImgs.cover", {}] },
+                          },
+                          in: {
+                            $cond: [
+                              { $gt: [{ $size: "$$ss" }, 0] },
+                              {
+                                $let: {
+                                  vars: { s0: { $arrayElemAt: ["$$ss", 0] } },
+                                  in: {
+                                    $ifNull: ["$$s0.thumbnail", "$$s0.url"],
+                                  },
+                                },
+                              },
+                              // 3) cover.thumbnail → cover.url → flat fallbacks
+                              {
+                                $ifNull: [
+                                  "$$cov.thumbnail",
+                                  {
+                                    $ifNull: [
+                                      "$$cov.url",
+                                      {
+                                        $ifNull: [
+                                          "$$rThumbFlat",
+                                          "$$rCoverFlat",
+                                        ],
+                                      },
+                                    ],
+                                  },
+                                ],
+                              },
+                            ],
+                          },
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        ],
+        as: "prod",
+      },
+    },
+    { $addFields: { prod0: { $arrayElemAt: ["$prod", 0] } } },
+    {
+      $project: {
+        _id: 0,
+        product: "$$ROOT._id",
+        name: "$prod0.name",
+        image: "$prod0.image",
+        units: 1,
+        revenue: 1,
+      },
+    },
+  ];
+
+  const rows = await Order.aggregate(pipeline);
+  const ranked = rows.map((r, i) => ({ rank: i + 1, ...r }));
+
+  res.status(200).json({
+    status: "success",
+    data: {
+      top: ranked,
+      meta: {
+        topN: Number(topN),
+        from: from ? new Date(from) : null,
+        to: to ? new Date(to) : null,
+        timezone: tz,
+      },
+    },
+  });
+});
+
 exports.getDashboardStats = catchAsyncErrors(async (req, res) => {
   const { from, to, tz = "Asia/Baghdad", topN = 10 } = req.query;
 
