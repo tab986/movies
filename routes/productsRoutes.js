@@ -2,9 +2,8 @@ const exp = require("express");
 // Use the local catalog controller instead of proxying the Kinguin API.
 const productsControllers = require("../controllers/productControllers");
 const adsControllers = require("../controllers/adsController");
-const { route } = require("./dashboardRoutes");
-const router = require("./dashboardRoutes");
-router = exp.Router({ mergeParams: true });
+
+const router = exp.Router({ mergeParams: true });
 
 router.route("/").get(productsControllers.listProducts);
 
