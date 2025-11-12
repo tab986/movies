@@ -616,8 +616,8 @@ function isoNowZ() {
 }
 
 async function runOnce({
-  // Allow callers or env to override overlap; default to 5 minutes
-  overlapMinutes = Number(process.env.SYNC_OVERLAP_MINUTES || 5),
+  // Allow callers or env to override overlap; default to 10 minutes
+  overlapMinutes = Number(process.env.SYNC_OVERLAP_MINUTES || 10),
 } = {}) {
   // Always ensure we have a DB connection; track whether we opened it here
   const openedHere = await ensureConnection();
