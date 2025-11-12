@@ -848,7 +848,7 @@ async function runOnce({
     // After syncing new items, recompute pricing for all existing documents to
     // reflect current FX rates and card fees.  This ensures that changes in
     // EUR_TO_IQD, IQD_MARKUP or card fee constants propagate immediately.
-    await repriceAll();
+    // await repriceAll();
 
     return { updated: kept };
   } finally {
