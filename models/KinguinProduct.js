@@ -20,6 +20,18 @@ const KinguinProductSchema = new mongoose.Schema(
   {
     // The Kinguin product ID is used as the MongoDB _id for easy upserts
     _id: { type: Number, required: true },
+    officialStore: {
+      itadGameId: String,
+      shopId: Number,
+      shopName: String,
+      url: String,
+      country: String,
+      currency: String,
+      priceAmount: Number, // current price on official store
+      regularAmount: Number, // original / non-discount price
+      cut: Number, // store's own discount (0–100)
+      lastUpdatedAt: Date,
+    },
 
     // Data straight from Kinguin (overwritten each sync)
     remote: {

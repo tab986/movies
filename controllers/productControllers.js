@@ -181,24 +181,30 @@ function buildListQuery(qs) {
   return { where, page, limit, sort };
 }
 
-/**
- * GET /api/v1/products
- * Read from local cache ONLY (no Kinguin calls).
- */
+const {
+  lookupGameIdsByTitle,
+  getPricesByGameIds,
+} = require("../utils/itadClient");
+// const { getShopIdsForPlatform } = require("../utils/platforms"); // if you ever need shops
+
 exports.listProducts = catchAsyncErrors(async (req, res, next) => {
   const { where, page, limit, sort } = buildListQuery(req.query);
   const skip = (page - 1) * limit;
+
   let pageCount = await KinguinProduct.find(where)
     .sort(sort)
     .clone()
     .countDocuments();
   pageCount = Math.ceil(pageCount / limit);
+
   const [items, count] = await Promise.all([
     KinguinProduct.find(where).sort(sort).skip(skip).limit(limit).lean(),
     KinguinProduct.countDocuments(),
   ]);
+
   // helpers (inline)
   const truncate2 = (n) => Math.trunc(Number(n) * 100) / 100;
+
   const safeFormat = (amount, currency) => {
     if (amount == null) return null;
     try {
@@ -216,11 +222,151 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
   // before mapping, get a single FX rate for this request
   const fx1 = await convertFromIQD(req, 1); // 1 IQD → X
   const rate = fx1.fxFallback ? 1 : fx1.rate; // multiplier from IQD
-  const currency = fx1.fxFallback ? "IQD" : fx1.currency;
+  const currency = fx1.fxFallback ? "IQD" : fx1.currency; // target currency (or IQD fallback)
+
+  const now = Date.now();
+  const REFRESH_INTERVAL_MS = 48 * 60 * 60 * 1000; // 48h
+  const country =
+    (req.user && req.user.countryCode) ||
+    process.env.ITAD_DEFAULT_COUNTRY ||
+    "US";
+
+  // ---------- Batch ITAD refresh for items on this page ----------
+
+  // 1) pick candidates that need refresh (missing or stale officialStore)
+  const candidates = items.filter((p) => {
+    const os = p.officialStore;
+    if (!os || !os.regularAmount || !os.lastUpdatedAt) return true;
+    const age = now - new Date(os.lastUpdatedAt).getTime();
+    return age > REFRESH_INTERVAL_MS;
+  });
+
+  const updatedOfficialById = {}; // _id (string) -> officialStore object
+
+  if (candidates.length > 0) {
+    // 2) build title -> [productIds] map
+    const titleMap = new Map(); // key = lowercased title, value = { title, productIds: [] }
+
+    for (const p of candidates) {
+      const title =
+        p.remote?.originalName || p.overrides?.name || p.remote?.name || null;
+      if (!title) continue;
+
+      const key = title.toLowerCase();
+      let entry = titleMap.get(key);
+      if (!entry) {
+        entry = { title, productIds: [] };
+        titleMap.set(key, entry);
+      }
+      entry.productIds.push(p._id.toString());
+    }
+
+    const titles = Array.from(titleMap.values()).map((e) => e.title);
+
+    if (titles.length > 0) {
+      try {
+        // 3) lookup ITAD gameIds for all titles in one shot
+        const lookupResp = await lookupGameIdsByTitle(titles);
+        // lookupResp: { [title]: gameId | null }
+
+        // 4) build gameId -> productIds map
+        const gameIdToProductIds = new Map();
+
+        for (const entry of titleMap.values()) {
+          const gameId = lookupResp[entry.title];
+          if (!gameId) continue;
+          let arr = gameIdToProductIds.get(gameId);
+          if (!arr) {
+            arr = [];
+            gameIdToProductIds.set(gameId, arr);
+          }
+          arr.push(...entry.productIds);
+        }
+
+        const gameIds = Array.from(gameIdToProductIds.keys());
+
+        if (gameIds.length > 0) {
+          // 5) fetch prices for all these gameIds in one API call
+          const pricesResp = await getPricesByGameIds(gameIds, { country });
+
+          // 6) prepare bulk Mongo updates
+          const bulkOps = [];
+
+          for (const entry of pricesResp) {
+            // ✅ use `id`, not `gameId`
+            const gameId = entry.id;
+            const deals = entry.deals;
+            if (!Array.isArray(deals) || deals.length === 0) continue;
+
+            // choose the cheapest deal as "official reference"
+            deals.sort((a, b) => a.price.amount - b.price.amount);
+            const best = deals[0];
+
+            if (!best.price || !best.regular) continue;
+
+            // ✅ match getProduct logic: store in IQD directly (amount * 1310)
+            const officialStore = {
+              itadGameId: gameId,
+              shopId: best.shop.id,
+              shopName: best.shop.name,
+              url: best.url,
+              // country,      // same as you did in getProduct (commented if you want)
+              // currency: best.price.currency,
+              priceAmount: best.price.amount * 1310.0, // IQD
+              regularAmount: best.regular.amount * 1310.0, // IQD
+              cut: best.cut,
+              lastUpdatedAt: new Date(),
+            };
+
+            const productIds = gameIdToProductIds.get(gameId) || [];
+            for (const pid of productIds) {
+              updatedOfficialById[pid] = officialStore;
+              bulkOps.push({
+                updateOne: {
+                  filter: { _id: pid },
+                  update: { $set: { officialStore } },
+                },
+              });
+            }
+          }
+
+          if (bulkOps.length > 0) {
+            await KinguinProduct.bulkWrite(bulkOps, { ordered: false });
+          }
+        }
+      } catch (err) {
+        console.error("ITAD sync in listProducts failed:", err.message);
+      }
+    }
+  }
+
+  // ---------- Build response with discount tags ----------
 
   const results = items.map((p) => {
     const priceIQD = p.derived?.priceMin ?? null;
     const priceConverted = priceIQD != null ? truncate2(priceIQD * rate) : null;
+
+    const idStr = p._id.toString();
+
+    // use freshly-fetched officialStore if we just updated it in this request
+    let officialForResponse =
+      updatedOfficialById[idStr] || p.officialStore || null;
+
+    console.log(`updatedOfficialById ::${{ ...updatedOfficialById }}`);
+    console.log(updatedOfficialById);
+
+    // // same logic as getProduct:
+    // // if our minimum IQD price is > official IQD price, hide official block
+    // if (
+    //   officialForResponse &&
+    //   typeof priceIQD === "number" &&
+    //   typeof officialForResponse.priceAmount === "number" &&
+    //   priceIQD > officialForResponse.priceAmount
+    // ) {
+    //   officialForResponse = null;
+    // }
+
+    const discountVsOfficial = null; // keeping as-is, you commented this out in getProduct
 
     return {
       kinguinId: p._id,
@@ -232,6 +378,24 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
       priceMinIQD: priceIQD, // original in IQD (kept for debugging)
       priceMin: priceConverted, // converted, truncated to 2 decimals
       priceMinFormatted: safeFormat(priceConverted, currency),
+
+      // ITAD / official store info for the card
+      officialStore: officialForResponse
+        ? {
+            shopId: officialForResponse.shopId,
+            shopName: officialForResponse.shopName,
+            url: officialForResponse.url,
+            // country: officialForResponse.country,
+            // currency: officialForResponse.currency,
+            priceAmount: officialForResponse.priceAmount, // already in IQD
+            regularAmount: officialForResponse.regularAmount, // already in IQD
+            cut: officialForResponse.cut,
+            lastUpdatedAt: officialForResponse.lastUpdatedAt,
+          }
+        : null,
+
+      // "Save X% vs official" – left null like in your getProduct
+      // discountVsOfficial,
 
       inStock: p.derived?.inStock,
       regionId: p.remote?.regionId,
@@ -263,28 +427,103 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
   });
 });
 
-/**
- * GET /api/v1/products/:kinguinId
- * Return merged view from local DB.
- */
+const { getOfficialDealForTitle } = require("../utils/itadClient");
+const { getShopIdsForPlatform } = require("../utils/platforms");
+
 exports.getProduct = catchAsyncErrors(async (req, res, next) => {
-  const id = Number(req.params.kinguinId);
-  if (!id) return next(new appError("kinguinId must be a number", 400));
+  const kinguinId = Number(req.params.kinguinId);
+  if (!kinguinId) return next(new appError("kinguinId must be a number", 400));
 
-  const p = await KinguinProduct.findById(id).lean();
-  if (!p || p.flags?.hidden === true)
+  // Lean for perf
+  let p = await KinguinProduct.findById(kinguinId).lean();
+  if (!p || p.flags?.hidden === true) {
     return res.status(404).json({ status: "not_found" });
+  }
 
-  // ---- currency + min price conversion (IQD -> user's currency) ----
   const truncate2 = (n) => Math.trunc(Number(n) * 100) / 100;
 
-  // Get per-IQD rate once
-  const fx = await convertFromIQD(req, 1); // 1 IQD => X target currency units
-  const rate = fx.fxFallback ? 1 : fx.rate; // multiplier from IQD
-  const currency = fx.fxFallback ? "IQD" : fx.currency; // target currency (or IQD fallback)
+  // FX for our own price (IQD → user currency)
+  const fx = await convertFromIQD(req, 1);
+  const rate = fx.fxFallback ? 1 : fx.rate;
+  const currency = fx.fxFallback ? "IQD" : fx.currency;
 
   const priceIQD = p.derived?.priceMin ?? null;
   const priceConverted = priceIQD != null ? truncate2(priceIQD * rate) : null;
+
+  // ---------- Official/original price (ITAD) with 24h cache ----------
+
+  const now = Date.now();
+  const TWENTY_FOUR_HOURS = 48 * 60 * 60 * 1000;
+
+  let officialStore = p.officialStore || null;
+
+  const needsRefresh =
+    !officialStore ||
+    !officialStore.regularAmount ||
+    !officialStore.lastUpdatedAt ||
+    now - new Date(officialStore.lastUpdatedAt).getTime() > TWENTY_FOUR_HOURS;
+
+  if (needsRefresh) {
+    const title = p.remote?.originalName;
+
+    const shopIds = getShopIdsForPlatform(p.remote?.platform);
+    const country =
+      (req.user && req.user.countryCode) ||
+      process.env.ITAD_DEFAULT_COUNTRY ||
+      "US";
+    let newp;
+    try {
+      const deal = await getOfficialDealForTitle(title, {
+        country,
+        shopIds,
+      });
+
+      if (deal) {
+        officialStore = {
+          itadGameId: deal.itadGameId,
+          shopId: deal.shopId,
+          shopName: deal.shopName,
+          url: deal.url,
+          // country: deal.country,
+          // currency: deal.currency,
+          priceAmount: deal.priceAmount * 1310.0,
+          regularAmount: deal.regularAmount * 1310.0,
+          cut: deal.cut,
+          lastUpdatedAt: new Date(),
+        };
+
+        // Update Mongo separately (p is lean)
+        newp = await KinguinProduct.findByIdAndUpdate(
+          kinguinId,
+          { officialStore },
+          { new: false }
+        );
+      }
+    } catch (e) {
+      console.error("ITAD price fetch failed", {
+        kinguinId,
+        error: e.message,
+      });
+    }
+  }
+
+  // ---------- Discount tag for the card ----------
+
+  let discountVsOfficial = null;
+
+  // We only compute when currencies match; otherwise leave null
+  // if (
+  //   officialStore &&
+  //   typeof priceConverted === "number" &&
+  //   typeof officialStore.regularAmount === "number" &&
+  //   officialStore.regularAmount > 0 &&
+  //   officialStore.currency === currency
+  // ) {
+  //   const ratio = 1 - priceConverted / officialStore.regularAmount;
+  //   discountVsOfficial = Math.max(0, Math.round(ratio * 100));
+  // }
+
+  if (priceIQD > officialStore.priceAmount) officialStore = null;
 
   res.status(200).json({
     status: "success",
@@ -294,10 +533,10 @@ exports.getProduct = catchAsyncErrors(async (req, res, next) => {
       description: p.overrides?.description || p.remote?.description,
       images: p.overrides?.images || p.remote?.images,
 
-      // ---- prices & currency ----
-      currency, // e.g., 'EUR' (or 'IQD' if FX fallback)
-      priceMinIQD: priceIQD, // original min price in IQD
-      priceMin: priceConverted, // converted, truncated to 2 decimals
+      // our store price
+      currency,
+      priceMinIQD: priceIQD,
+      priceMin: priceConverted,
 
       inStock: p.derived?.inStock,
       regionId: p.remote?.regionId,
@@ -317,15 +556,31 @@ exports.getProduct = catchAsyncErrors(async (req, res, next) => {
       developers: p.remote?.developers,
       releaseDate: p.remote?.releaseDate,
       tags: p.remote?.tags,
-      remote: p.remote, // keep for admin/debug
+
+      // ITAD / official store info
+      officialStore: officialStore
+        ? {
+            shopId: officialStore.shopId,
+            shopName: officialStore.shopName,
+            url: officialStore.url,
+            country: officialStore.country,
+            currency: officialStore.currency,
+            priceAmount: officialStore.priceAmount,
+            regularAmount: officialStore.regularAmount,
+            cut: officialStore.cut, // store’s own discount vs its regular price
+            lastUpdatedAt: officialStore.lastUpdatedAt,
+          }
+        : null,
+
+      // // discount tag you can slap on the card:
+      // // "Save X% vs official" — this is OUR price vs official regular price.
+      // discountVsOfficial,
+
+      remote: p.remote,
     },
   });
 });
 
-/**
- * PATCH /api/v1/products/:kinguinId/overrides
- * Write ONLY to overrides.* (never touched by sync)..
- */
 exports.patchOverrides = catchAsyncErrors(async (req, res, next) => {
   const id = Number(req.params.kinguinId);
   if (!id) return next(new appError("kinguinId must be a number", 400));
