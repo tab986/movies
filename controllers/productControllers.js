@@ -522,8 +522,8 @@ exports.getProduct = catchAsyncErrors(async (req, res, next) => {
   //   const ratio = 1 - priceConverted / officialStore.regularAmount;
   //   discountVsOfficial = Math.max(0, Math.round(ratio * 100));
   // }
-
-  if (priceIQD > officialStore.priceAmount) officialStore = null;
+  if (officialStore && priceIQD > officialStore?.priceAmount)
+    officialStore = null;
 
   res.status(200).json({
     status: "success",
