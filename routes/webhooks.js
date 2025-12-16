@@ -5,9 +5,7 @@
 const router = require("express").Router();
 const { runOnce } = require("../worker/deltaSync");
 const authControllers = require("../controllers/authControllers");
-const { use } = require("react");
 const SECRET = process.env.WEBHOOK_SECRET || "";
-
 // Validate incoming webhook using X-Kinguin-Secret header or ?secret parameter
 function verifySecret(req) {
   const headerSecret =
