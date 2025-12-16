@@ -588,14 +588,14 @@ exports.patchOverrides = catchAsyncErrors(async (req, res, next) => {
   const allowed = {};
   if (req.body?.name !== undefined)
     allowed["overrides.name"] = String(req.body.name);
-  if (req.body?.name !== undefined)
+  if (req.body?.overrides !== undefined)
     allowed["overrides.isAd"] = String(req.body.isAd);
   if (req.body?.description !== undefined)
     allowed["overrides.description"] = String(req.body.description);
   if (req.body?.images !== undefined)
     allowed["overrides.images"] = req.body.images;
   if (req.body?.coverImage !== undefined)
-    allowed["overrides.images"] = req.body.images;
+    allowed["overrides.coverImage"] = req.body.coverImage;
   if (!Object.keys(allowed).length)
     return next(new appError("No override fields provided", 400));
 

@@ -42,10 +42,10 @@ exports.getAd = catchAsyncErrors(async (req, res, next) => {
 
 exports.updateAd = catchAsyncErrors(async (req, res, next) => {
   if (!req.body.json) {
-    return next(new AppError("please insert json key with form-data", 400));
+    json = req.body;
+  } else {
+    const json = JSON.parse(req.body.json);
   }
-  const json = JSON.parse(req.body.json);
-
   // role-aware filter like your hotel code
   const { adId } = req.params;
 

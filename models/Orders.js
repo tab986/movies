@@ -135,7 +135,6 @@ orderSchema.post(/^findOneAnd/, async function (doc) {
 });
 
 // Export only the Order model from this file
-module.exports = mongoose.model("Order", orderSchema);
 
 module.exports = orderItemSchema;
 
