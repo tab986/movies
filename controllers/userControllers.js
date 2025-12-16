@@ -70,7 +70,7 @@ exports.updateProfileImage = async (req, res, next) => {
 
 exports.deleteUser = catchAsyncErrors(async (req, res, next) => {
   let deletedUser;
-  if ((!req.user, role == "admin")) {
+  if ((!req.user.role == "admin")) {
     deletedUser = await User.findByIdAndUpdate(req.body.user, {
       active: false,
     });
