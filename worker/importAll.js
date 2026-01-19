@@ -302,12 +302,15 @@ function computeMinEUR(up) {
 const CARD_FIXED_FEE_IQD = 800;
 const CARD_PERCENT_FEE = 0.03;
 
-function eurToIqd(minEur, { isCard = false, isDLC = false } = {}) {
+function eurToIqd(
+  minEur,
+  { isCard = false, isDLC = false, isSpoty = false } = {},
+) {
   if (minEur == null) return undefined;
 
   const baseIqd = minEur * EUR_TO_IQD;
 
-  if (isCard || isDLC) {
+  if (isCard || isDLC || isSpoty) {
     const cardFee = CARD_FIXED_FEE_IQD + baseIqd * CARD_PERCENT_FEE; // 800 + 3% of base
     return Math.round(baseIqd + cardFee);
   }
@@ -323,8 +326,9 @@ function computeDerived(up) {
 
   const minEur = computeMinEUR(up); // STRICT: must exist (checked gate)
   const isCard = !!up?.remote?.isCard;
-  const isDLC = !!up?.remote?.isDLC; // set earlier by your whitelist
-  const priceMin = eurToIqd(minEur, { isCard, isDLC });
+  const isDLC = !!up?.remote?.isDLC;
+  const isSpoty = !!up?.remote?.isSpoty; // set earlier by your whitelist
+  const priceMin = eurToIqd(minEur, { isCard, isDLC, isSpoty });
 
   return { inStock, priceMin };
 }
@@ -669,6 +673,7 @@ async function runImportAll({ logger = console } = {}) {
 
       // ✅ Decide if this item is a "card" purely by title match
       const isCard = isWhitelistedCard(nm);
+      const isSpoty = nm.includes("Spotify"); // set earlier by your whitelist
       const isDLC = nm.includes("DLC"); // set earlier by your whitelist --- IGNORE ---
       // 🔎 Name filters apply to non-card items only
       if (!isCard) {
@@ -699,7 +704,12 @@ async function runImportAll({ logger = console } = {}) {
         // optional: ensure it's not incorrectly flagged
         if (p.remote.isDLC === true) delete p.remote.isDLC;
       }
-
+      if (isSpoty) {
+        p.remote.isSpoty = true;
+      } else {
+        // optional: ensure it's not incorrectly flagged
+        if (p.remote.isSpoty === true) delete p.remote.isSpoty;
+      }
       const genres = Array.isArray(p?.genres) ? p.genres : [];
       const platformCanonical = normalizePlatform(p.platform);
       const minEur = computeMinEUR(p);
