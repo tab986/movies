@@ -639,6 +639,7 @@ async function runImportAll({ logger = console } = {}) {
         "PlayStation Network Card $45 US",
         "PlayStation Network Card $6 US",
         "Spotify 12-month Premium Account",
+        "Spotify 1-month Premium Account",
       ];
 
       // Precompute normalized set for O(1) lookups
