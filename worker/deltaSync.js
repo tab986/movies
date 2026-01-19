@@ -262,6 +262,61 @@ const CARD_TITLE_WHITELIST = [
   "CSGO-Skins $5 Gift Card",
 
   "Tom Clancy's Rainbow Six Siege - 2670 Credits Pack XBOX One CD Key",
+  "iTunes $100 US Card",
+  "iTunes $10 US Card",
+  "iTunes $75 US Card",
+  "iTunes $20 US Card",
+  "iTunes $25 US Card",
+  "iTunes $50 US Card",
+  "iTunes $5 US Card",
+  "iTunes $40 US Card",
+  "iTunes $52 US Card",
+  "iTunes $7 US Card",
+  "iTunes $15 US Card",
+  "iTunes $200 US Card",
+  "iTunes $60 US Card",
+
+  "Overwatch 2 - 500 Coins US Battle.net CD Key",
+  "Overwatch 2 - 1000 Coins US Battle.net CD Key",
+  "Overwatch 2 - 200 Coins US Battle.net CD Key",
+  "Overwatch 2 - 1000 Coins DLC US XBOX One / Xbox Series X|S CD Key",
+  "Overwatch 2 - 10000 (+1600 Bonus) Coins DLC US XBOX One / Xbox Series X|S CD Key",
+  "Overwatch 2 - 5000 (+700 Bonus) Coins DLC US XBOX One / Xbox Series X|S CD Key",
+  "Overwatch 2 - 2000 (+200 Bonus) Coins DLC US XBOX One / Xbox Series X|S CD Key",
+
+  "Google Play USD 35 Gift Card US",
+  "Google Play USD 8 Gift Card US",
+  "Google Play USD 9 Gift Card US",
+  "Google Play USD 6 Gift Card US",
+  "Google Play USD 7 Gift Card US",
+  "Google Play USD 65 Gift Card US",
+  "Google Play USD 150 Gift Card US",
+  "Google Play USD 90 Gift Card US",
+  "Google Play USD 55 Gift Card US",
+  "Google Play USD 70 Gift Card US",
+  "Google Play USD 80 Gift Card US",
+  "Google Play USD 60 Gift Card US",
+  "Google Play USD 45 Gift Card US",
+
+  "Xbox Game Pass Ultimate - 1 Month Subscription Card US",
+  "Xbox Game Pass Ultimate - 1 Month Subscription Card US (NON-STACKABLE)",
+  "XBOX Game Pass Essential - 3 Month Subscription Card US",
+  "XBOX Game Pass Essential - 12 Month Subscription Card US",
+  "Xbox Game Pass Ultimate - 3 Month Subscription Card US",
+  "XBOX Game Pass Essential - 6 Month Subscription Card US",
+
+  "PlayStation Network Card $5 US",
+  "PlayStation Network Card $35 US",
+  "PlayStation Network Card $4 US",
+  "PlayStation Network Card $1 US",
+  "PlayStation Network Card $60 US",
+  "PlayStation Network Card $150 US",
+  "PlayStation Network Card $125 US",
+  "PlayStation Network Card $2 US",
+  "PlayStation Network Card $250 US",
+  "PlayStation Network Card $11 US",
+  "PlayStation Network Card $45 US",
+  "PlayStation Network Card $6 US",
 ];
 
 // Normalize card titles for robust matching.
@@ -404,7 +459,7 @@ function normalizePlatform(upstreamPlatform) {
 }
 
 const ALLOWED_PLATFORMS_NORMALIZED = new Set(
-  ALLOWED_PLATFORMS.map((p) => normalizePlatform(p))
+  ALLOWED_PLATFORMS.map((p) => normalizePlatform(p)),
 );
 
 function allowedPlatformMatch(upstreamPlatform) {
@@ -421,7 +476,7 @@ function normalizeGenre(g) {
 
 const ALLOWED_GENRES_NORMALIZED = new Set(ALLOWED_GENRES.map(normalizeGenre));
 const BLACKLIST_GENRES_NORMALIZED = new Set(
-  BLACKLIST_GENRES.map(normalizeGenre)
+  BLACKLIST_GENRES.map(normalizeGenre),
 );
 
 function allowedGenreMatch(arr) {
@@ -548,7 +603,7 @@ async function repriceAll() {
 async function getWithRetry(
   url,
   config,
-  { attempts = 5, baseDelayMs = 400 } = {}
+  { attempts = 5, baseDelayMs = 400 } = {},
 ) {
   let tryNum = 0;
   for (;;) {
@@ -649,7 +704,7 @@ async function runOnce({
     const totalPages = Math.max(1, Math.ceil(upstreamTotal / PAGE_SIZE));
 
     console.log(
-      `[deltaSync] since=${sinceISO}, upstream_total=${upstreamTotal}, pages=${totalPages}`
+      `[deltaSync] since=${sinceISO}, upstream_total=${upstreamTotal}, pages=${totalPages}`,
     );
 
     let fetched = 0;
@@ -746,7 +801,7 @@ async function runOnce({
         // Compute derived values (inStock, priceMin) using filtered offers
         const derived = computeDerived(
           { price: p.price, qty: p.qty, offers: filteredOffers },
-          { isCard }
+          { isCard },
         );
 
         // Build remote shape; include isCard flag for downstream UI/queries
@@ -808,7 +863,7 @@ async function runOnce({
       console.log(
         `[deltaSync] ${label}: fetched=${results.length}, kept_now=${ops.length}, ` +
           `skipped={name:${skipName}, region:${skipRegion}, missingPlatform:${skipMissingPlatform}, platform:${skipPlatform}, ` +
-          `missingGenres:${skipMissingGenres}, bannedGenre:${skipBannedGenre}, genre:${skipGenre}, noPrice:${skipNoPrice}}`
+          `missingGenres:${skipMissingGenres}, bannedGenre:${skipBannedGenre}, genre:${skipGenre}, noPrice:${skipNoPrice}}`,
       );
     }
 
@@ -826,7 +881,7 @@ async function runOnce({
           const data = await fetchPage(page, sinceISO, filters);
           await processResults(data?.results || [], `page ${page}`);
         }
-      }
+      },
     );
 
     await Promise.all(workers);
@@ -835,14 +890,14 @@ async function runOnce({
     await SyncState.updateOne(
       { key: "lastSync" },
       { $set: { value: isoNowZ() } },
-      { upsert: true }
+      { upsert: true },
     );
 
     const ms = Date.now() - t0;
     console.log(
       `[deltaSync] DONE pages=${totalPages} in ${ms}ms; fetched=${fetched}, kept=${kept}, ` +
         `skipped={name:${skipName}, region:${skipRegion}, missingPlatform:${skipMissingPlatform}, platform:${skipPlatform}, ` +
-        `missingGenres:${skipMissingGenres}, bannedGenre:${skipBannedGenre}, genre:${skipGenre}, noPrice:${skipNoPrice}}`
+        `missingGenres:${skipMissingGenres}, bannedGenre:${skipBannedGenre}, genre:${skipGenre}, noPrice:${skipNoPrice}}`,
     );
 
     // After syncing new items, recompute pricing for all existing documents to
@@ -865,7 +920,7 @@ if (require.main === module) {
     (err) => {
       console.error("deltaSync failed:", err);
       process.exit(1);
-    }
+    },
   );
 }
 
