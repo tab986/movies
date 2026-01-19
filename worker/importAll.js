@@ -675,11 +675,12 @@ async function runImportAll({ logger = console } = {}) {
           continue;
         }
       }
-
-      const regionOk = ALLOWED_REGION_IDS.includes(Number(p?.regionId));
-      if (!regionOk) {
-        skipRegion++;
-        continue;
+      if (!isCard) {
+        const regionOk = ALLOWED_REGION_IDS.includes(Number(p?.regionId));
+        if (!regionOk) {
+          skipRegion++;
+          continue;
+        }
       }
 
       // 🏷️ Mark as card for downstream queries/UI (no reliance on tags/prepaid)
