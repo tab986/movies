@@ -302,12 +302,12 @@ function computeMinEUR(up) {
 const CARD_FIXED_FEE_IQD = 800;
 const CARD_PERCENT_FEE = 0.03;
 
-function eurToIqd(minEur, { isCard = false } = {}) {
+function eurToIqd(minEur, { isCard = false, isDLC = false } = {}) {
   if (minEur == null) return undefined;
 
   const baseIqd = minEur * EUR_TO_IQD;
 
-  if (isCard) {
+  if (isCard || isDLC) {
     const cardFee = CARD_FIXED_FEE_IQD + baseIqd * CARD_PERCENT_FEE; // 800 + 3% of base
     return Math.round(baseIqd + cardFee);
   }
@@ -322,8 +322,9 @@ function computeDerived(up) {
       up.offers.some((o) => (Number(o?.availableQty) || 0) > 0));
 
   const minEur = computeMinEUR(up); // STRICT: must exist (checked gate)
-  const isCard = !!up?.remote?.isCard; // set earlier by your whitelist
-  const priceMin = eurToIqd(minEur, { isCard });
+  const isCard = !!up?.remote?.isCard;
+  const isDLC = !!up?.remote?.isDLC; // set earlier by your whitelist
+  const priceMin = eurToIqd(minEur, { isCard, isDLC });
 
   return { inStock, priceMin };
 }
@@ -668,7 +669,7 @@ async function runImportAll({ logger = console } = {}) {
 
       // ✅ Decide if this item is a "card" purely by title match
       const isCard = isWhitelistedCard(nm);
-
+      const isDLC = nm.includes("DLC"); // set earlier by your whitelist --- IGNORE ---
       // 🔎 Name filters apply to non-card items only
       if (!isCard) {
         if (!NAME_REQUIRE_RE.test(nm) || NAME_EXCLUDE_RE.test(nm)) {
@@ -691,6 +692,12 @@ async function runImportAll({ logger = console } = {}) {
       } else {
         // optional: ensure it's not incorrectly flagged
         if (p.remote.isCard === true) delete p.remote.isCard;
+      }
+      if (isDLC) {
+        p.remote.isDLC = true;
+      } else {
+        // optional: ensure it's not incorrectly flagged
+        if (p.remote.isDLC === true) delete p.remote.isDLC;
       }
 
       const genres = Array.isArray(p?.genres) ? p.genres : [];
