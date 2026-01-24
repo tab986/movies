@@ -638,8 +638,6 @@ async function runImportAll({ logger = console } = {}) {
         "PlayStation Network Card $11 US",
         "PlayStation Network Card $45 US",
         "PlayStation Network Card $6 US",
-        "Spotify 12-month Premium Account",
-        "Spotify 1-month Premium Account",
       ];
 
       // Precompute normalized set for O(1) lookups
@@ -674,7 +672,6 @@ async function runImportAll({ logger = console } = {}) {
 
       // ✅ Decide if this item is a "card" purely by title match
       const isCard = isWhitelistedCard(nm);
-      const isSpoty = nm.includes("Spotify"); // set earlier by your whitelist
       const isDLC = nm.includes("DLC"); // set earlier by your whitelist --- IGNORE ---
       // 🔎 Name filters apply to non-card items only
       if (!isCard) {
@@ -705,12 +702,7 @@ async function runImportAll({ logger = console } = {}) {
         // optional: ensure it's not incorrectly flagged
         if (p.remote.isDLC === true) delete p.remote.isDLC;
       }
-      if (isSpoty) {
-        p.remote.isSpoty = true;
-      } else {
-        // optional: ensure it's not incorrectly flagged
-        if (p.remote.isSpoty === true) delete p.remote.isSpoty;
-      }
+
       const genres = Array.isArray(p?.genres) ? p.genres : [];
       const platformCanonical = normalizePlatform(p.platform);
       const minEur = computeMinEUR(p);
