@@ -1,13 +1,3 @@
-// worker/deltaSync.js
-// Incremental sync using ESA `updatedSince`, STRICT rules identical to importAll:
-//  - Name must include "CD Key" and NOT include "Account"
-//  - Region allow-list
-//  - Platform required + normalized to canonical; must be in allow-list
-//  - Genres required + allow-list; blacklist enforced
-//  - Price required (min of product.price and offers[].price)
-//  - IQD price = round(EUR*EUR_TO_IQD + IQD_MARKUP)
-// Fast: concurrency, HTTP keep-alive, retry/backoff, bulkWrite per page.
-
 require("dotenv").config({ path: process.env.DOTENV_PATH || "./config.env" });
 
 const https = require("https");
@@ -16,7 +6,6 @@ const mongoose = require("mongoose");
 const KinguinProduct = require("../models/KinguinProduct");
 const { SyncState, SyncProfile } = require("../models/SyncState");
 
-// ------------------------------- HTTP client -------------------------------
 const httpsAgent = new https.Agent({
   keepAlive: true,
   maxSockets: 32,
@@ -29,7 +18,6 @@ const axios = axiosRaw.create({
   httpsAgent,
 });
 
-// --------------------------------- Config ---------------------------------
 const KINGUIN_BASE =
   process.env.KINGUIN_API_BASE || "https://gateway.kinguin.net/esa/api";
 const KINGUIN_KEY = process.env.KINGUIN_API_KEY;
