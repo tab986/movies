@@ -10,7 +10,7 @@ const { runOnce } = require("./deltaSync");
 // Schedule deltaSync to run every 2 minutes
 // Cron format: "*/2 * * * *" means "every 2 minutes"
 // Change to "*/1 * * * *" for every 1 minute if needed
-const SYNC_SCHEDULE = process.env.SYNC_SCHEDULE || "*/30 * * * * *";
+const SYNC_SCHEDULE = process.env.SYNC_SCHEDULE || "*/1 * * * *";
 
 console.log(`[scheduler] Starting deltaSync scheduler with schedule: ${SYNC_SCHEDULE}`);
 
