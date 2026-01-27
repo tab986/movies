@@ -35,7 +35,7 @@ const axios = axiosRaw.create({
 
 // --------------------------------- Config ---------------------------------
 const KINGUIN_BASE =
-  process.env.KINGUIN_API_BASE || "https://gateway.kinguin.net/esa/api";
+  process.env.KINGUIN_API_BASE || "https://gateway.kinguin.net/esa/api"; // what the fuck why the api key is here
 const KINGUIN_KEY = process.env.KINGUIN_API_KEY;
 const MONGODB_URI = process.env.MONGODB_URI;
 const MONGODB_DB = process.env.MONGODB_DB;
@@ -777,7 +777,7 @@ async function runImportAll({ logger = console } = {}) {
         videos: p.videos || null,
         updatedAt: p.updatedAt ? new Date(p.updatedAt) : new Date(),
       };
-
+        //data storing 
       ops.push({
         updateOne: {
           filter: { _id: Number(p.kinguinId) },
@@ -838,6 +838,8 @@ async function runImportAll({ logger = console } = {}) {
   );
 
   await Promise.all(workers);
+ console.log(workers);
+
 
   logger.log(
     `[importAll] DONE upstream_total=${upstreamTotal}, fetched=${fetched}, kept=${kept}, ` +

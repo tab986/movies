@@ -670,11 +670,13 @@ async function runOnce({
     const profile = await SyncProfile.findOne({ name: "default" }).lean();
     const filters = profile?.filters || {};
     const fields = profile?.fields || [];
-
+    // this is to read the time stamp of the last sync there for it is to now when the last sync was done
     // Determine the last sync time from DB; if missing, create a window based on overlap
     const state = await SyncState.findOne({ key: "lastSync" }).lean();
+    // the sinceISO is the time stamp of the last sync 
     let sinceISO;
     if (!state?.value) {
+
       // First run or missing state: back off by overlap to avoid missing items
       sinceISO = new Date(Date.now() - overlapMinutes * 60 * 1000)
         .toISOString()
