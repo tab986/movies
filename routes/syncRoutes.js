@@ -3,7 +3,7 @@
 const router = require("express").Router();
 const { SyncProfile } = require("../models/SyncState");
 const { runOnce } = require("../worker/deltaSync");
-// const { run: runImportAll } = require('../worker/importAll');
+const { run: runImportAll } = require('../worker/importAll');
 const { run: runReconcile } = require("../worker/reconcile");
 
 // Retrieve the current sync profile
@@ -40,15 +40,15 @@ router.post("/run", async (req, res) => {
 const syncController = require("../controllers/syncController");
 
 router.post("/import", syncController.startFullImport);
-// // Trigger a full import (import all products). This should be run rarely (e.g. first time or after changing filters drastically).
-// router.post('/import', async (req, res) => {
-//   try {
-//     await runImportAll();
-//     res.json({ status: 'success', message: 'Full import completed' });
-//   } catch (e) {
-//     res.status(500).json({ status: 'error', message: e.message });
-//   }
-// });
+// Trigger a full import (import all products). This should be run rarely (e.g. first time or after changing filters drastically).
+router.post('/import', async (req, res) => {
+  try {
+    await runImportAll();
+    res.json({ status: 'success', message: 'Full import completed' });
+  } catch (e) {
+    res.status(500).json({ status: 'error', message: e.message });
+  }
+});
 
 // Trigger a reconciliation to hide removed products.
 router.post("/reconcile", async (req, res) => {
