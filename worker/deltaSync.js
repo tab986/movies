@@ -886,7 +886,7 @@ async function runOnce({
       { upsert: true },
     );
 
-    await repriceAll();
+    
     const ms = Date.now() - t0;
     console.log(
       `[deltaSync] DONE pages=${totalPages} in ${ms}ms; fetched=${fetched}, kept=${kept}, ` +
