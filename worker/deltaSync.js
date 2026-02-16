@@ -913,5 +913,5 @@ if (require.main === module) {
     },
   );
 }
-
+repriceAll();
 module.exports = { runOnce };
