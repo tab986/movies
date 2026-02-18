@@ -110,7 +110,7 @@ async function createWaylLink(referenceId, amount, productName, image, req) {
     redirectionUrl: "https://www.gamewiseiq.com/my-orders",
     webhookSecret: process.env.WAYL_SECRET,
   };
-  console.log("payload", payload);
+  console.log("payload", payload ,"gg");
 
   try {
     const res = await axios.post(`${WAYL_BASE}/links`, payload, {
