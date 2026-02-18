@@ -103,13 +103,14 @@ async function createWaylLink(referenceId, amount, productName, image, req) {
         label: productName || "Basket Value",
         type: "increase",
         amount: payAmount,
-        image,
+        image: image || "",
       },
     ],
     webhookUrl: process.env.WAYL_r,
     redirectionUrl: "https://www.gamewiseiq.com/my-orders",
     webhookSecret: process.env.WAYL_SECRET,
   };
+  console.log("payload", payload);
 
   try {
     const res = await axios.post(`${WAYL_BASE}/links`, payload, {
@@ -250,6 +251,7 @@ exports.checkout = async (req, res, next) => {
         unitPrice: itm.unitPrice,
       })),
     };
+    console.log("orderData", orderData);
     // Mirror single item into legacy fields
     // if (orderData.products.length === 1) {
     //   orderData.product = orderData.products[0].product;
@@ -265,7 +267,7 @@ exports.checkout = async (req, res, next) => {
     if (hasCart) {
       label = "Basket Value";
       image = orderItems[0].product.remote?.images?.cover?.url;
-      console.log(label, image);
+
     }
     // else {
     //   label = orderItems[0].product.remote?.name;
