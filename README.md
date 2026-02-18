@@ -348,7 +348,7 @@ Fields:
 ```
 
 ### Orders.js
-
+it is but a  schma
 Stores customer orders with payment, Kinguin order, and key delivery data.
 
 ```

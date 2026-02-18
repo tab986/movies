@@ -265,6 +265,7 @@ exports.checkout = async (req, res, next) => {
     if (hasCart) {
       label = "Basket Value";
       image = orderItems[0].product.remote?.images?.cover?.url;
+      console.log(label, image);
     }
     // else {
     //   label = orderItems[0].product.remote?.name;
