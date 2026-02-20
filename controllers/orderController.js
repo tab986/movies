@@ -7,7 +7,7 @@ const factory = require("../utils/handlerFactory");
 const catchAsyncErrors = require("../utils/catchAsyncErrors");
 const appError = require("../utils/appError");
 const { convertFromIQD } = require("../utils/currency");
-const { stat } = require("fs");
+const { status } = require("fs");
 
 // Wayl config
 const WAYL_AUTH_KEY = process.env.WAYL_AUTH_KEY; // set in your .env
@@ -16,7 +16,7 @@ const WAYL_BASE = process.env.WAYL_BASE || "https://api.thewayl.com/api/v1";
 // Helper to verify Wayl webhook signature
 function verifyWaylSignature(req) {
   const signature = req.headers["x-wayl-signature-256"];
-  const expected = crypto.createHmac("sha256", process.env.WAYL_SECRET);
+  const expected = crypto.createHmac("sha256", process.env.WAYL_SECRET).update(json.stringify(req.body)).digest("hex");
   return signature === expected;
 }
 const KINGUIN_API_BASE =
@@ -102,7 +102,7 @@ async function createWaylLink(referenceId, amount, productName, image, req) {
       {
         label: productName || "Basket Value",
         type: "increase",
-        amount: payAmount,
+        amount: payAmount || 0.00,
         image: image || "",
       },
     ],
@@ -110,7 +110,7 @@ async function createWaylLink(referenceId, amount, productName, image, req) {
     redirectionUrl: "https://www.gamewiseiq.com/my-orders",
     webhookSecret: process.env.WAYL_SECRET,
   };
-  console.log("payload", payload ,"gg");
+
 
   try {
     const res = await axios.post(`${WAYL_BASE}/links`, payload, {
@@ -150,6 +150,7 @@ async function createWaylLink(referenceId, amount, productName, image, req) {
       status,
       JSON.stringify(data, null, 2)
     );
+    console.log("payload", payload , "gg");
     throw err;
   }
 }
@@ -319,35 +320,54 @@ exports.waylCallback = async (req, res, next) => {
     order.status = "wayle";
     await order.save();
 
-    // Build products payload for Kinguin API. If the order contains a cart
-    // (`products` array) we iterate over each entry and map it to the format
-    // expected by Kinguin: { kinguinId, qty, price }. Otherwise fall back to
-    // the legacy single product fields.
+    // Build products payload for Kinguin API. Each entry needs
+    // { kinguinId, qty, price } where price must match an available offer.
     let kinguinProducts = [];
     if (Array.isArray(order.products) && order.products.length > 0) {
       for (const item of order.products) {
         const prod = await KinguinProduct.findById(item.product);
-        if (!prod) continue;
+        if (!prod) {
+          console.error(`[waylCallback] Product ${item.product} not found in DB, skipping`);
+          continue;
+        }
+
+        // Use the minimum available offer price so Kinguin can match it.
+        // Falls back to remote.price only if no offers have stock.
+        const offers = Array.isArray(prod.remote?.offers) ? prod.remote.offers : [];
+        const availablePrices = offers
+          .filter(o => (Number(o?.availableQty) || 0) > 0 && Number.isFinite(o?.price) && o.price > 0)
+          .map(o => o.price);
+        const price = availablePrices.length > 0
+          ? Math.min(...availablePrices)
+          : prod.remote?.price;
+
+        if (!price) {
+          console.error(`[waylCallback] Product ${item.product} (${prod.remote?.name}) has no valid price, skipping`);
+          continue;
+        }
+
         kinguinProducts.push({
           kinguinId: Number(item.product),
           qty: Number(item.quantity) || 1,
-          price: prod.remote?.price,
+          price,
         });
       }
     }
-    //  else {
-    //   // Single product fallback
-    //   const prod = await KinguinProduct.findById(order.product);
-    //   kinguinProducts.push({
-    //     kinguinId: Number(order.product),
-    //     qty: Number(order.quantity) || 1,
-    //     price: prod?.remote?.price,
-    //   });
-    // }
+
+    if (kinguinProducts.length === 0) {
+      console.error(`[waylCallback] Order ${order._id} has no valid products for Kinguin`);
+      return res.status(400).json({
+        status: "fail",
+        message: "No valid products could be sent to Kinguin",
+      });
+    }
+
     const kinguinPayload = {
       products: kinguinProducts,
       orderExternalId: String(order._id),
     };
+    console.log("[waylCallback] Kinguin payload:", JSON.stringify(kinguinPayload));
+
     // Place order with Kinguin
     const kinguinOrderResponse = await kinguinPlaceOrderV2(kinguinPayload);
     order.kinguinOrderId = kinguinOrderResponse.orderId;
