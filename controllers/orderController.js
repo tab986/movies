@@ -83,7 +83,7 @@ async function createWaylLink(referenceId, amount, productName, image, req) {
 
   // FX: detect target currency from IP (or ?currency / x-currency override)
   const fx = await convertFromIQD(req, iqd);
-
+  console.log("FX result:", fx ,":",typeof fx);
   // first 2 decimals (truncate, not round)
   const truncate2 = (n) => Math.trunc(Number(n) * 100) / 100;
 
