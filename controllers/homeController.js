@@ -1,4 +1,4 @@
-const Home = require("../models/homeModel");
+const { Home } = require("../post-models");
 const catchAsyncErrors = require("../utils/catchAsyncErrors");
 const appError = require("../utils/appError");
 const deleteS3ObjectFromUrl = require("../utils/s3Utils"); // Adjust path if needed
@@ -109,10 +109,8 @@ exports.updateHomeSection = catchAsyncErrors(async (req, res, next) => {
   }
 
   // Merge and update
-  const updatedHome = await Home.findByIdAndUpdate(home._id, json, {
-    new: true,
-    runValidators: true,
-  });
+  await home.update(json);
+  const updatedHome = await Home.findByPk(home.id);
 
   if (!updatedHome) {
     return next(new appError("Home section not found after update", 404));

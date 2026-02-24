@@ -1,7 +1,7 @@
 const catchAsyncErrors = require("./catchAsyncErrors");
 const AppError = require("./appError");
 const APIFeatures = require("./APIFeatures");
-const mongoose = require("mongoose");
+const { Op } = require("sequelize");
 
 exports.deleteOne = (Model, docName = "document") =>
   catchAsyncErrors(async (req, res, next) => {
@@ -10,12 +10,14 @@ exports.deleteOne = (Model, docName = "document") =>
       return next(new AppError(`MISSING_${docName.toUpperCase()}_ID`, 400)); // Need to add keys like MISSING_CATEGORY_ID etc.
     }
 
-    const doc = await Model.findByIdAndDelete(docId);
+    const doc = await Model.findByPk(docId);
 
     if (!doc) {
       const errorKey = `${docName.toUpperCase()}_NOT_FOUND`;
       return next(new AppError(errorKey, 404));
     }
+
+    await doc.destroy();
 
     res.status(204).json({
       status: "success",
@@ -33,15 +35,14 @@ exports.updateOne = (Model, docName = "document") =>
       return next(new AppError("PASSWORD_UPDATE_NOT_ALLOWED", 400));
     }
 
-    const doc = await Model.findByIdAndUpdate(docId, req.body, {
-      new: true,
-      runValidators: true,
-    });
+    const doc = await Model.findByPk(docId);
 
     if (!doc) {
       const errorKey = `${docName.toUpperCase()}_NOT_FOUND`;
       return next(new AppError(errorKey, 404));
     }
+
+    await doc.update(req.body);
 
     res.status(200).json({
       status: "success",
@@ -70,11 +71,13 @@ exports.getOne = (Model, populateOptions, docName = "document") =>
       return next(new AppError(`MISSING_${docName.toUpperCase()}_ID`, 400));
     }
 
-    let query = Model.findById(docId);
+    const options = {};
     if (populateOptions) {
-      query = query.populate(populateOptions);
+      options.include = Array.isArray(populateOptions)
+        ? populateOptions
+        : [populateOptions];
     }
-    const doc = await query;
+    const doc = await Model.findByPk(docId, options);
 
     if (!doc) {
       const errorKey = `${docName.toUpperCase()}_NOT_FOUND`;
@@ -104,7 +107,7 @@ exports.getAll = (Model, docNamePlural = "documents") =>
           : req.query.category.split(",");
 
         filter.category = {
-          $in: categoryIds.map((id) => new mongoose.Types.ObjectId(id)),
+          [Op.in]: categoryIds,
         };
 
         delete req.query.category;
@@ -120,7 +123,7 @@ exports.getAll = (Model, docNamePlural = "documents") =>
           : req.query.tags.split(",");
 
         filter.tags = {
-          $in: tagIds.map((id) => new mongoose.Types.ObjectId(id)),
+          [Op.in]: tagIds,
         };
 
         delete req.query.tags;
@@ -129,20 +132,15 @@ exports.getAll = (Model, docNamePlural = "documents") =>
       }
     }
 
-    let features = new APIFeatures(Model.find(filter), req.query)
+    let features = new APIFeatures(Model, req.query, filter)
       .filter()
       .sort()
       .selectFields();
 
-    const total = await features.query.clone().countDocuments();
+    const total = await features.count();
 
     features = features.paginate();
-
-    const doc = await features.query
-      .populate({ path: "category", strictPopulate: false })
-      .populate({ path: "tags", strictPopulate: false })
-      .populate({ path: "reviews", strictPopulate: false })
-      .populate({ path: "baseCategory", strictPopulate: false });
+    const doc = await features.execute();
     res.status(200).json({
       status: "success",
       results: doc.length,

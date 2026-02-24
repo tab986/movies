@@ -5,32 +5,39 @@ process.on("uncaughtException", (err) => {
 });
 
 const dot = require("dotenv");
-dot.config({ path: "./config.env" });
+dot.config();
+dot.config({ path: "./config.env", override: false });
 
 const app = require("./app");
-const mongoose = require("mongoose");
+const { sequelize } = require("./post-models");
 
-DB = process.env.MONGODB_URI;
+let server;
 
-mongoose.connect(DB).then((con) => {
-  console.log("DB connected");
-});
+async function startServer() {
+  await sequelize.authenticate();
+  console.log("Postgres connected");
 
-const port = process.env.PORT || 3000;
-const server = app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
-});
+  const port = process.env.PORT || 3000;
+  server = app.listen(port, () => {
+    console.log(`Server running on port ${port}`);
+  });
 
-// Start internal scheduler for full import (if enabled)
-if (process.env.ENABLE_INTERNAL_SCHEDULER !== "false") {
-  require("./worker/scheduler");
-  console.log("[server] Internal full import scheduler enabled");
+  // Start internal scheduler for full import (if enabled)
+  if (process.env.ENABLE_INTERNAL_SCHEDULER !== "false") {
+    require("./worker/scheduler");
+    console.log("[server] Internal full import scheduler enabled");
+  }
+
+  // Keep long-running import requests alive on the Node side
+  server.requestTimeout = 0; // disable (Node v18+)
+  server.headersTimeout = 0; // disable (Node v18+)
+  server.keepAliveTimeout = 0; // optional: let the import hold the socket
 }
 
-// Keep long-running import requests alive on the Node side
-server.requestTimeout = 0; // disable (Node v18+)
-server.headersTimeout = 0; // disable (Node v18+)
-server.keepAliveTimeout = 0; // optional: let the import hold the socket
+startServer().catch((err) => {
+  console.log(err.name, err.message);
+  process.exit(1);
+});
 
 // {
 //   useCreateIndex: true,
@@ -41,7 +48,11 @@ process.on("unhandledRejection", (err) => {
   console.log(err.name, err.message);
   console.log("UNHANDLED REJECTION !!!!!!!!!!!  Terminateing The Server");
 
-  server.close((_) => {
-    process.exit(1);
-  });
+  if (server) {
+    server.close((_) => {
+      process.exit(1);
+    });
+    return;
+  }
+  process.exit(1);
 });

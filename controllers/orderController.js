@@ -1,6 +1,4 @@
-const Order = require("../models/Orders");
-const Coupon = require("../models/Coupon");
-const KinguinProduct = require("../models/KinguinProduct");
+const { Order, Coupon, KinguinProduct } = require("../post-models");
 const axios = require("axios");
 const crypto = require("crypto");
 const factory = require("../utils/handlerFactory");
@@ -9,6 +7,7 @@ const appError = require("../utils/appError");
 const { convertFromIQD } = require("../utils/currency");
 const { stat } = require("fs");
 const { fetchKinguinProductById } = require("../lib/kinguinClient");
+const { Op } = require("sequelize");
 
 // Wayl config
 const WAYL_AUTH_KEY = process.env.WAYL_AUTH_KEY; // set in your .env
@@ -173,7 +172,7 @@ async function submitKinguinOrderForOrder(order) {
 
   const response = await submitKinguinOrderWithProducts({
     products: kinguinProducts,
-    orderExternalId: String(order._id),
+    orderExternalId: String(order.id),
   });
 
   order.kinguinOrderId = response.orderId;
@@ -262,7 +261,7 @@ async function createWaylLink(referenceId, amount, productName, image, req) {
 
 exports.checkout = async (req, res, next) => {
   try {
-    const userId = req.user._id;
+    const userId = req.user._id || req.user.id;
     // When placing an order the client may supply either a single `productId`
     // or a `cart` array containing multiple items. Each cart item should
     // specify a `productId` and a `qty` (quantity). A coupon code may also be
@@ -278,7 +277,7 @@ exports.checkout = async (req, res, next) => {
       // Process each cart entry
       for (const item of cart) {
         const { productId: pId, qty } = item;
-        const p = await KinguinProduct.findById(pId);
+        const p = await KinguinProduct.findByPk(Number(pId));
 
         if (!p) {
           return res
@@ -350,7 +349,7 @@ exports.checkout = async (req, res, next) => {
       totalPrice: total,
       waylReference: waylRef,
       products: orderItems.map((itm) => ({
-        product: itm.product._id.toString(),
+        product: String(itm.product.id),
         quantity: itm.quantity,
         unitPrice: itm.unitPrice,
       })),
@@ -409,7 +408,7 @@ exports.waylCallback = async (req, res, next) => {
     console.log(req.body);
 
     const { referenceId } = req.body;
-    const order = await Order.findOne({ waylReference: referenceId });
+    const order = await Order.findOne({ where: { waylReference: referenceId } });
     console.log(order);
     if (!order)
       return res
@@ -434,15 +433,16 @@ exports.prepareKinguinOrderProduct = buildKinguinOrderProduct;
 
 // List current user's orders
 exports.myOrders = async (req, res) => {
-  const orders = await Order.find({
-    user: req.user._id,
-    status: { $in: ["completed", "kingwin"] },
-  })
-    .populate("product")
-    .sort("-createdAt")
-    .lean();
+  const orders = await Order.findAll({
+    where: {
+      user: req.user._id || req.user.id,
+      status: { [Op.in]: ["completed", "kingwin"] },
+    },
+    order: [["createdAt", "DESC"]],
+    raw: true,
+  });
   const summary = orders.map((o) => ({
-    id: o._id,
+    id: o.id,
     product: o.product,
     products: o.products,
     totalPrice: o.totalPrice,
@@ -455,12 +455,13 @@ exports.myOrders = async (req, res) => {
 // Get a specific order (with keys if completed)
 exports.getOrder = async (req, res) => {
   let order = await Order.findOne({
-    status: { $in: ["completed", "kingwin"] },
-    _id: req.params.id,
-    user: req.user._id,
-  })
-    .lean({ virtuals: true }) // include virtuals in plain object
-    .populate("products.detail");
+    where: {
+      status: { [Op.in]: ["completed", "kingwin"] },
+      id: req.params.id,
+      user: req.user._id || req.user.id,
+    },
+    raw: true,
+  });
 
   if (!order)
     return res.status(404).json({ status: "fail", message: "Order not found" });
@@ -483,16 +484,17 @@ exports.getOrder = async (req, res) => {
       }));
       if (keys.length > 0) {
         // Store all keys on the order; also mirror the first key into the legacy `key` field.
-        order = await Order.findOneAndUpdate(
-          { kinguinOrderId: order.kinguinOrderId },
+        await Order.update(
           {
-            keys: keys,
+            keys,
             status: "completed",
           },
-          { new: true }
-        )
-          .lean({ virtuals: true }) // include virtuals in plain object
-          .populate("products.detail");
+          { where: { kinguinOrderId: order.kinguinOrderId } }
+        );
+        order = await Order.findOne({
+          where: { kinguinOrderId: order.kinguinOrderId },
+          raw: true,
+        });
       }
     } catch (err) {
       const status = err.response?.status;
@@ -506,7 +508,7 @@ exports.getOrder = async (req, res) => {
 exports.getOrders = factory.getAll(Order, "orders");
 
 exports.getOrderUser = catchAsyncErrors(async (req, res, next) => {
-  const order = await Order.findById(req.params.orderId);
+  const order = await Order.findByPk(req.params.orderId);
   if (!order) {
     return next(new appError("order not found", 404));
   }
@@ -521,23 +523,26 @@ exports.getOrderUser = catchAsyncErrors(async (req, res, next) => {
 
 exports.updateOrder = catchAsyncErrors(async (req, res, next) => {
   if (req.body) {
-    const order = await Order.findByIdAndUpdate(req.params.orderId, req.body);
+    const order = await Order.findByPk(req.params.orderId);
+    if (!order) {
+      return next(new appError("order not found", 404));
+    }
+    await order.update(req.body);
     res.status(200).json({
       status: "success",
-      order: order,
+      order,
     });
   }
 });
 
 exports.deleteOrder = catchAsyncErrors(async (req, res, next) => {
-  let deletedorder;
-  deletedorder = await Order.findOneAndDelete({
-    _id: req.params.orderId,
-  });
+  const deletedorder = await Order.findByPk(req.params.orderId);
 
   if (!deletedorder) {
     return next(new appError("order not found", 404));
   }
+
+  await deletedorder.destroy();
 
   res.status(204).json({
     status: "success",

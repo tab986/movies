@@ -1,9 +1,10 @@
 const jwt = require("jsonwebtoken");
 const { promisify } = require("util");
-const Users = require("../models/userModel");
+const { Users } = require("../post-models");
 const catchAsync = require("../utils/catchAsyncErrors");
 const AppError = require("../utils/appError");
 const APIFeatures = require("../utils/APIFeatures");
+const { Op } = require("sequelize");
 
 const createToken = (userId) =>
   jwt.sign({ id: userId }, process.env.JWT_SECRET, {
@@ -17,6 +18,20 @@ const getCookieOptions = () => ({
   httpOnly: true,
   secure: process.env.NODE_ENV === "production",
 });
+
+const SENSITIVE_USER_FIELDS = [
+  "password",
+  "passwordResetToken",
+  "passwordResetTokenExp",
+];
+
+function sanitizeUser(user) {
+  if (!user) return user;
+  const plain = user.get ? user.get({ plain: true }) : { ...user };
+  SENSITIVE_USER_FIELDS.forEach((field) => delete plain[field]);
+  plain._id = plain.id;
+  return plain;
+}
 
 exports.signup = (role = "user") =>
   catchAsync(async (req, res, next) => {
@@ -56,13 +71,13 @@ exports.signup = (role = "user") =>
       role, // comes from function arg / controller
     });
 
-    const token = createToken(user._id);
+    const token = createToken(user.id);
     res.cookie("JWT", token, getCookieOptions());
 
     res.status(201).json({
       status: "success",
       token,
-      data: { user },
+      data: { user: sanitizeUser(user) },
     });
   });
 
@@ -77,12 +92,12 @@ exports.login = (role = "user") =>
       return next(new AppError("Please provide both phone and password", 400));
     }
 
-    const user = await Users.findOne({ phone }).select("+password");
+    const user = await Users.findOne({ where: { phone } });
     if (!user || !(await user.checkPassword(password, user.password))) {
       return next(new AppError("Incorrect phone or password", 401));
     }
 
-    const token = createToken(user._id);
+    const token = createToken(user.id);
     res.cookie("JWT", token, getCookieOptions());
     if (role === "admin") {
       if (user.role !== "admin") {
@@ -92,7 +107,7 @@ exports.login = (role = "user") =>
     res.status(200).json({
       status: "success",
       token,
-      data: { user },
+      data: { user: sanitizeUser(user) },
     });
   });
 
@@ -110,7 +125,7 @@ exports.protect = catchAsync(async (req, res, next) => {
   }
 
   const decoded = await promisify(jwt.verify)(token, process.env.JWT_SECRET);
-  const currentUser = await Users.findById(decoded.id).select("+password");
+  const currentUser = await Users.findByPk(decoded.id);
 
   if (!currentUser) {
     return next(new AppError("User no longer exists", 401));
@@ -120,6 +135,7 @@ exports.protect = catchAsync(async (req, res, next) => {
     return next(new AppError("Token is invalid due to password change", 401));
   }
 
+  currentUser._id = currentUser.id;
   req.user = currentUser;
   next();
 });
@@ -138,7 +154,7 @@ exports.updateUser = catchAsync(async (req, res, next) => {
   let user = req.user;
 
   if (req.user.role === "admin" && req.params.phone) {
-    user = await Users.findOne({ phone: req.params.phone });
+    user = await Users.findOne({ where: { phone: req.params.phone } });
     if (!user) return next(new AppError("User not found with that phone", 404));
   }
 
@@ -160,27 +176,26 @@ exports.getUsers = catchAsync(async (req, res, next) => {
     return next(new AppError("Only admins can view all users", 403));
   }
 
-  const features = new APIFeatures(Users.find(), req.query)
+  const features = new APIFeatures(Users, req.query)
     .filter()
     .sort()
     .paginate()
-    .selectFields();
+    .selectFields(SENSITIVE_USER_FIELDS);
 
-  const users = await features.query.select(
-    "-password -passwordResetToken -passwordResetTokenExp"
-  );
+  const users = await features.execute();
+  const sanitizedUsers = users.map(sanitizeUser);
 
   res.status(200).json({
     status: "success",
-    results: users.length,
-    data: { users },
+    results: sanitizedUsers.length,
+    data: { users: sanitizedUsers },
   });
 });
 
 exports.sendOTP = catchAsync(async (req, res, next) => {
   const { phone } = req.body;
   if (!phone) return next(new AppError("Phone number is required", 400));
-  const user = await Users.findOne({ phone });
+  const user = await Users.findOne({ where: { phone } });
   if (user) return next(new AppError("User already exists", 404));
 
   const twilio = require("twilio")(
@@ -208,7 +223,7 @@ exports.updatePasswordWithOld = catchAsync(async (req, res, next) => {
   }
 
   // Get user from DB with password field
-  const user = await Users.findById(req.user._id).select("+password");
+  const user = await Users.findByPk(req.user._id || req.user.id);
   if (!user) return next(new AppError("User not found", 404));
 
   // Check if old password is correct
@@ -234,7 +249,11 @@ exports.requestPasswordResetOtp = catchAsync(async (req, res, next) => {
   if (!to) return next(new AppError("phoneNumber is required", 400));
 
   // Ensure the user exists
-  const user = await Users.findOne({ phoneNumber: to });
+  const user = await Users.findOne({
+    where: {
+      [Op.or]: [{ phone: to }, { phoneNumber: to }],
+    },
+  });
   if (!user) return next(new AppError("User not found", 404));
 
   // Send OTP via Twilio Verify
@@ -267,7 +286,11 @@ exports.updatePasswordWithOtp = catchAsync(async (req, res, next) => {
   }
 
   // Find user
-  const user = await Users.findOne({ phoneNumber: to }).select("+password");
+  const user = await Users.findOne({
+    where: {
+      [Op.or]: [{ phone: to }, { phoneNumber: to }],
+    },
+  });
   if (!user) return next(new AppError("User not found", 404));
 
   // Bypass code for testing
@@ -292,13 +315,13 @@ exports.updatePasswordWithOtp = catchAsync(async (req, res, next) => {
   await user.save();
 
   // (Optional) Log the user in after reset
-  const token = createToken(user._id);
+  const token = createToken(user.id);
   res.cookie("JWT", token, getCookieOptions());
 
   res.status(200).json({
     status: "success",
     message: "Password updated successfully",
     token,
-    data: { user },
+    data: { user: sanitizeUser(user) },
   });
 });
