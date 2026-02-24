@@ -1,4 +1,5 @@
 const User = require("../models/userModel");
+const { buildPublicFileUrl } = require("../utils/publicFileUrl");
 
 exports.getMyProfileDetails = async (req, res, next) => {
   try {
@@ -15,6 +16,10 @@ exports.getMyProfileDetails = async (req, res, next) => {
         .status(404)
         .json({ status: "fail", message: "User not found" });
     }
+
+    const absoluteProfileImage = buildPublicFileUrl(user.profileImage);
+    user.profileImage = absoluteProfileImage || user.profileImage;
+    user.profileImageUrl = absoluteProfileImage || null;
 
     return res.status(200).json({
       status: "success",

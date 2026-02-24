@@ -1,5 +1,6 @@
 const { S3Client, DeleteObjectCommand } = require("@aws-sdk/client-s3");
 const { URL } = require("url");
+const { buildPublicFileUrl } = require("./publicFileUrl");
 
 const deleteS3ObjectFromUrl = async (fileUrl) => {
   const awsRegion = process.env.AWS_REGION;
@@ -19,7 +20,8 @@ const deleteS3ObjectFromUrl = async (fileUrl) => {
   }
 
   try {
-    const parsed = new URL(fileUrl);
+    const normalizedFileUrl = buildPublicFileUrl(fileUrl);
+    const parsed = new URL(normalizedFileUrl);
     const key = parsed.pathname
       .replace(`/${bucketName}/`, "")
       .replace(/^\//, "");

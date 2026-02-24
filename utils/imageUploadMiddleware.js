@@ -5,6 +5,7 @@ const { S3Client } = require("@aws-sdk/client-s3");
 const { Upload } = require("@aws-sdk/lib-storage");
 const AppError = require("./appError");
 const catchAsyncErrors = require("./catchAsyncErrors");
+const { buildPublicFileUrl } = require("./publicFileUrl");
 
 // --- Cloudflare R2 Configuration ---
 if (
@@ -27,7 +28,6 @@ const s3Client = new S3Client({
 });
 
 const BUCKET_NAME = process.env.R2_BUCKET_NAME;
-const R2_BUCKET_PATH = process.env.R2_BUCKET_PATH;
 
 const multerStorage = multer.memoryStorage();
 
@@ -99,7 +99,7 @@ const createImageProcessingMiddleware = ({
       const result = await upload.done();
       console.log("R2 Upload Success:", result.Location);
 
-      const fileUrl = `${R2_BUCKET_PATH}/${s3Key}`;
+      const fileUrl = buildPublicFileUrl(s3Key);
       req.body[imageFieldName] = fileUrl;
 
       next();
@@ -168,7 +168,7 @@ const createMultiImageProcessingMiddleware = ({
         });
 
         const result = await upload.done();
-        const url = `${R2_BUCKET_PATH}/${key}`;
+        const url = buildPublicFileUrl(key);
         uploadedImageUrls.push(url);
       })
     );
