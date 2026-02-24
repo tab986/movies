@@ -23,8 +23,8 @@ const server = app.listen(port, () => {
 
 // Start internal scheduler for full import (if enabled)
 if (process.env.ENABLE_INTERNAL_SCHEDULER !== "false") {
-  require("./worker/scheduler");
-  console.log("[server] Internal full import scheduler enabled");
+require("./worker/scheduler");
+console.log("[server] Internal deltaSync scheduler enabled");
 }
 
 // Keep long-running import requests alive on the Node side

@@ -53,8 +53,8 @@ app.use(
   })
 );
 
-// app.js or server.js
-app.set("trust proxy", true); // use x-forwarded-for as client IP
+// Trust only the first proxy (Render's reverse proxy)
+app.set("trust proxy", 1);
 
 // app.options('*', cors());
 app.use(exp.static(path.join(__dirname, "public")));

@@ -477,6 +477,8 @@ function bannedGenrePresent(arr) {
 }
 
 // ----------------------------- Derived helpers ----------------------------
+// used to compute the minimum EUR price available for a product, considering both
+// product.price and any offer prices.  Returns null if none are valid.
 function computeMinEUR(up) {
   const pool = [];
   const p = Number(up?.price);
@@ -585,6 +587,7 @@ async function repriceAll() {
     await KinguinProduct.bulkWrite(ops, { ordered: false });
   }
   console.log(`[repriceAll] processed=${processed}`);
+  console.log(`[repriceAll] ops=${ops.length}`);
 }
 
 // ------------------------------ HTTP retry --------------------------------
@@ -883,6 +886,7 @@ async function runOnce({
       { upsert: true },
     );
 
+    
     const ms = Date.now() - t0;
     console.log(
       `[deltaSync] DONE pages=${totalPages} in ${ms}ms; fetched=${fetched}, kept=${kept}, ` +
