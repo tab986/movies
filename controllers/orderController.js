@@ -75,6 +75,110 @@ async function kinguinPlaceOrderV2(payload) {
     );
   }
 }
+
+function parsePositiveNumber(value, fieldName) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new appError(`${fieldName} must be a positive number`, 400);
+  }
+  return parsed;
+}
+
+async function buildKinguinOrderProduct({ productId, qty = 1 }) {
+  const kinguinId = parsePositiveNumber(productId, "productId");
+  const quantity = parsePositiveNumber(qty, "qty");
+
+  let remoteProduct;
+  try {
+    remoteProduct = await fetchKinguinProductById(kinguinId);
+  } catch (err) {
+    const status = err.response?.status;
+    const data = err.response?.data;
+    throw new appError(
+      `Kinguin product lookup failed for ${kinguinId}: ${
+        data?.detail || data?.message || err.message
+      }`,
+      status || 400
+    );
+  }
+
+  const price = Number(remoteProduct?.price);
+  if (!Number.isFinite(price) || price <= 0) {
+    throw new appError(`Kinguin product ${kinguinId} has invalid price`, 400);
+  }
+
+  return {
+    kinguinId,
+    qty: quantity,
+    price,
+  };
+}
+
+async function submitKinguinOrderByProductId({
+  productId,
+  qty = 1,
+  orderExternalId,
+  kinguinProduct,
+}) {
+  if (!orderExternalId) {
+    throw new appError("orderExternalId is required", 400);
+  }
+
+  const productPayload =
+    kinguinProduct || (await buildKinguinOrderProduct({ productId, qty }));
+  const response = await kinguinPlaceOrderV2({
+    products: [productPayload],
+    orderExternalId: String(orderExternalId),
+  });
+  if (!response?.orderId) {
+    throw new appError("Kinguin order response missing orderId", 502);
+  }
+
+  return response;
+}
+
+async function submitKinguinOrderWithProducts({ products, orderExternalId }) {
+  if (!orderExternalId) {
+    throw new appError("orderExternalId is required", 400);
+  }
+  if (!Array.isArray(products) || products.length === 0) {
+    throw new appError("products must be a non-empty array", 400);
+  }
+
+  const response = await kinguinPlaceOrderV2({
+    products,
+    orderExternalId: String(orderExternalId),
+  });
+  if (!response?.orderId) {
+    throw new appError("Kinguin order response missing orderId", 502);
+  }
+
+  return response;
+}
+
+async function submitKinguinOrderForOrder(order) {
+  if (!order || !Array.isArray(order.products) || order.products.length === 0) {
+    throw new appError("Order has no products to submit to Kinguin", 400);
+  }
+
+  const kinguinProducts = [];
+  for (const item of order.products) {
+    const product = await buildKinguinOrderProduct({
+      productId: item.product,
+      qty: item.quantity || 1,
+    });
+    kinguinProducts.push(product);
+  }
+
+  const response = await submitKinguinOrderWithProducts({
+    products: kinguinProducts,
+    orderExternalId: String(order._id),
+  });
+
+  order.kinguinOrderId = response.orderId;
+  order.status = "kingwin";
+  await order.save();
+}
 // Create payment link via Wayl
 async function createWaylLink(referenceId, amount, productName, image, req) {
   // base (IQD from your system)
@@ -378,6 +482,9 @@ exports.waylCallback = async (req, res, next) => {
     next(err);
   }
 };
+
+exports.submitKinguinOrderByProductId = submitKinguinOrderByProductId;
+exports.prepareKinguinOrderProduct = buildKinguinOrderProduct;
 
 // List current user's orders
 exports.myOrders = async (req, res) => {

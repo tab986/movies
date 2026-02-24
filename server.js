@@ -21,7 +21,7 @@ const server = app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
 
-// Start internal scheduler for deltaSync (if enabled)
+// Start internal scheduler for full import (if enabled)
 if (process.env.ENABLE_INTERNAL_SCHEDULER !== "false") {
 require("./worker/scheduler");
 console.log("[server] Internal deltaSync scheduler enabled");
