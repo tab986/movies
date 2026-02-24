@@ -119,7 +119,6 @@ usersSchema.methods.resetPasswordToken = function () {
 
   return resetToken;
 };
-usersSchema.index({ phone: 1 }, { unique: true });
 
 const Users = mongoose.model("Users", usersSchema);
 

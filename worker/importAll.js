@@ -305,6 +305,7 @@ function eurToIqd(
   if (minEur == null) return undefined;
 
   const baseIqd = minEur * EUR_TO_IQD;
+//baseIqd is the product's price converted from EUR to IQD, before any markup or fees are added.
 
   if (isCard || isDLC || isSpoty) {
     const cardFee = CARD_FIXED_FEE_IQD + baseIqd * CARD_PERCENT_FEE; // 800 + 3% of base
