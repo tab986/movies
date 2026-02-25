@@ -42,6 +42,7 @@ function buildListQuery(qs) {
     "flags.hidden": { $ne: true },
     "derived.inStock": true,
   };
+  let hasSearchQuery = false;
 
   const page = Math.max(1, Number(qs.page) || 1);
   const limit = Math.max(1, Math.min(200, Number(qs.limit) || 24));
@@ -143,8 +144,30 @@ function buildListQuery(qs) {
 
   // Search
   if (qs.q) {
-    const rx = new RegExp(String(qs.q), "i");
-    where.$or = [{ "overrides.name": rx }, { "remote.name": rx }];
+    const searchText = String(qs.q).trim();
+    if (searchText) {
+      const firstChar = searchText[0];
+      const escapedFirstChar = firstChar.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        "\\$&"
+      );
+      hasSearchQuery = true;
+
+      // Enforce first-character matching on the effective display name:
+      // overrides.name -> remote.name -> remote.originalName.
+      where.$expr = {
+        $regexMatch: {
+          input: {
+            $ifNull: [
+              "$overrides.name",
+              { $ifNull: ["$remote.name", "$remote.originalName"] },
+            ],
+          },
+          regex: `^${escapedFirstChar}`,
+          options: "i",
+        },
+      };
+    }
   }
 
   // -------- Sorting --------
@@ -178,7 +201,7 @@ function buildListQuery(qs) {
       : { [field]: dir };
   }
 
-  return { where, page, limit, sort };
+  return { where, page, limit, sort, hasSearchQuery };
 }
 
 const {
@@ -188,7 +211,7 @@ const {
 // const { getShopIdsForPlatform } = require("../utils/platforms"); // if you ever need shops
 
 exports.listProducts = catchAsyncErrors(async (req, res, next) => {
-  const { where, page, limit, sort } = buildListQuery(req.query);
+  const { where, page, limit, sort, hasSearchQuery } = buildListQuery(req.query);
   const skip = (page - 1) * limit;
 
   let pageCount = await KinguinProduct.find(where)
@@ -197,8 +220,12 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
     .countDocuments();
   pageCount = Math.ceil(pageCount / limit);
 
+  const listSort = hasSearchQuery
+    ? { "derived.searchRating": -1, ...sort, _id: 1 }
+    : sort;
+  const listQuery = KinguinProduct.find(where).sort(listSort).skip(skip).limit(limit);
   const [items, count] = await Promise.all([
-    KinguinProduct.find(where).sort(sort).skip(skip).limit(limit).lean(),
+    listQuery.lean(),
     KinguinProduct.countDocuments(),
   ]);
 
