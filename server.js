@@ -10,12 +10,14 @@ dot.config({ path: "./config.env", override: false });
 
 const app = require("./app");
 const { sequelize } = require("./post-models");
+const initDatabaseTables = require("./post-models/initDatabase");
 
 let server;
 
 async function startServer() {
   await sequelize.authenticate();
   console.log("Postgres connected");
+  await initDatabaseTables();
 
   const port = process.env.PORT || 3000;
   server = app.listen(port, () => {
