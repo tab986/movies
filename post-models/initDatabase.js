@@ -6,14 +6,27 @@ function isInitEnabled(flagValue) {
   return normalized === "true" || normalized === "1" || normalized === "yes";
 }
 
+function isProductionLikeEnv() {
+  const env = (process.env.NODE_ENV || "").trim().toLowerCase();
+  return env === "production" || env === "staging";
+}
+
 async function initDatabaseTables() {
-  const enabled = isInitEnabled(process.env.DB_INIT_ON_STARTUP);
+  const rawFlag = process.env.DB_INIT_ON_STARTUP;
+  const enabled = isInitEnabled(rawFlag);
 
   if (!enabled) {
+    const envLabel = process.env.NODE_ENV || "unknown";
     console.log(
-      "[db-init] Skipped table initialization (DB_INIT_ON_STARTUP is disabled)"
+      `[db-init] Skipped table initialization (DB_INIT_ON_STARTUP=${rawFlag || "unset"}, NODE_ENV=${envLabel})`
     );
     return false;
+  }
+
+  if (isProductionLikeEnv()) {
+    console.warn(
+      "[db-init] DB_INIT_ON_STARTUP enabled in production-like environment; ensure this is intentional"
+    );
   }
 
   console.log("[db-init] Starting table initialization (create-only sync)");

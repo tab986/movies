@@ -59,6 +59,11 @@ app.set("trust proxy", 1);
 // app.options('*', cors());
 app.use(exp.static(path.join(__dirname, "public")));
 
+// Lightweight probe endpoint for platform health checks.
+app.get("/healthz", (req, res) => {
+  res.status(200).json({ status: "ok" });
+});
+
 app.get("/", (req, res) => {
   console.log("working");
   res.send({ jason: "working" });
