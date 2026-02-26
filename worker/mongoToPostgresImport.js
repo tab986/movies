@@ -101,9 +101,12 @@ async function importCollection({
   logger,
   progressEvery = 1000,
   prepareBatch,
+  buildCursor,
 }) {
   const summary = initialModelSummary();
-  const cursor = mongoModel.find({}).lean().cursor({ batchSize });
+  const cursor = buildCursor
+    ? buildCursor({ mongoModel, batchSize })
+    : mongoModel.find({}).lean().cursor({ batchSize });
   let batch = [];
 
   async function flush() {
@@ -114,6 +117,17 @@ async function importCollection({
 
     for (const doc of batch) {
       summary.scanned += 1;
+      if (
+        label === "Users" &&
+        (doc.password == null ||
+          (typeof doc.password === "string" && doc.password.trim() === ""))
+      ) {
+        summary.failed += 1;
+        logger.warn(
+          `[mongo-import] Users skipped phone=${doc.phone || "unknown"} reason=missing-password`,
+        );
+        continue;
+      }
       try {
         const mapped = await mapDoc(doc, batchContext);
         if (!mapped || mapped.__importKey == null || mapped.__importKey === "") {
@@ -355,6 +369,8 @@ async function runMongoToPostgresImport({
       pgModel: Users,
       keyField: "phone",
       mapDoc: mapUser,
+      buildCursor: ({ mongoModel, batchSize: usersBatchSize }) =>
+        mongoModel.find({}).select("+password").lean().cursor({ batchSize: usersBatchSize }),
       batchSize,
       logger,
     });

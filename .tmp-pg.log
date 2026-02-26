@@ -1,0 +1,8 @@
+2026-02-26 20:39:52.300 +03 [3408] LOG:  starting PostgreSQL 18.2 on x86_64-windows, compiled by msvc-19.44.35222, 64-bit
+2026-02-26 20:39:52.306 +03 [3408] LOG:  listening on IPv4 address "127.0.0.1", port 55432
+2026-02-26 20:39:52.306 +03 [3408] LOG:  listening on IPv6 address "::1", port 55432
+2026-02-26 20:39:52.369 +03 [23696] LOG:  database system was shut down at 2026-02-26 20:39:29 +03
+2026-02-26 20:39:52.376 +03 [3408] LOG:  database system is ready to accept connections
+2026-02-26 20:40:15.732 +03 [20728] FATAL:  database "gamewise_import" does not exist
+2026-02-26 20:44:52.364 +03 [13648] LOG:  checkpoint starting: time
+2026-02-26 20:46:44.366 +03 [13648] LOG:  checkpoint complete: wrote 1057 buffers (6.5%), wrote 3 SLRU buffers; 1 WAL file(s) added, 0 removed, 0 recycled; write=111.654 s, sync=0.285 s, total=112.003 s; sync files=383, longest=0.004 s, average=0.001 s; distance=5443 kB, estimate=5443 kB; lsn=0/1D421B8, redo lsn=0/1D42128
