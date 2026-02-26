@@ -7,8 +7,8 @@ require("dotenv").config({ path: process.env.DOTENV_PATH || "./config.env" });
 
 const https = require("https");
 const axiosRaw = require("axios");
-const mongoose = require("mongoose");
-const KinguinProduct = require("../models/KinguinProduct");
+const { KinguinProduct, sequelize } = require("../post-models");
+const { Op } = require("sequelize");
 
 // ------------------------------- HTTP client -------------------------------
 const httpsAgent = new https.Agent({
@@ -483,12 +483,8 @@ async function fetchPage(page) {
 
 // ------------------------------ Main runner --------------------------------
 async function ensureConnection() {
-  if (mongoose.connection.readyState === 1) return false;
-  await mongoose.connect(process.env.MONGODB_URI, {
-    dbName: process.env.MONGODB_DB,
-    maxPoolSize: 50,
-  });
-  return true;
+  await sequelize.authenticate();
+  return false;
 }
 
 async function run() {
@@ -575,30 +571,30 @@ async function run() {
     await Promise.all(workers);
 
     // Compare with local DB
-    const locals = await KinguinProduct.find(
-      {},
-      { _id: 1, "flags.hidden": 1 }
-    ).lean();
+    const locals = await KinguinProduct.findAll({
+      attributes: ["id", "flags"],
+      raw: true,
+    });
     const toHide = [];
     const toUnhide = [];
     for (const doc of locals) {
-      if (!seen.has(doc._id)) {
-        if (!doc.flags?.hidden) toHide.push(doc._id);
+      if (!seen.has(doc.id)) {
+        if (!doc.flags?.hidden) toHide.push(doc.id);
       } else {
-        if (doc.flags?.hidden) toUnhide.push(doc._id);
+        if (doc.flags?.hidden) toUnhide.push(doc.id);
       }
     }
 
     if (toHide.length) {
-      await KinguinProduct.updateMany(
-        { _id: { $in: toHide } },
-        { $set: { "flags.hidden": true, "flags.removedAt": new Date() } }
+      await KinguinProduct.update(
+        { flags: { hidden: true, removedAt: new Date() } },
+        { where: { id: { [Op.in]: toHide } } }
       );
     }
     if (toUnhide.length) {
-      await KinguinProduct.updateMany(
-        { _id: { $in: toUnhide } },
-        { $set: { "flags.hidden": false }, $unset: { "flags.removedAt": 1 } }
+      await KinguinProduct.update(
+        { flags: { hidden: false } },
+        { where: { id: { [Op.in]: toUnhide } } }
       );
     }
 
@@ -613,7 +609,9 @@ async function run() {
       seen: seen.size,
     };
   } finally {
-    if (openedHere) await mongoose.disconnect();
+    if (openedHere) {
+      // no-op for Sequelize pooled connection
+    }
   }
 }
 

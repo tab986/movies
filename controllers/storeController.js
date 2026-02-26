@@ -1,4 +1,4 @@
-const Store = require("../models/storeModel");
+const { Store } = require("../post-models");
 const catchAsyncErrors = require("../utils/catchAsyncErrors");
 const APIFeatures = require("../utils/APIFeatures");
 const deleteFiles = require("../utils/deletefiles");
@@ -105,17 +105,13 @@ exports.createStore = catchAsyncErrors(async (req, res, next) => {
 
 exports.getStores = catchAsyncErrors(async (req, res) => {
   let stores;
-  const features = new APIFeatures(Store.find(), req.query)
+  const features = new APIFeatures(Store, req.query)
     .filter()
     .sort()
     .paginate()
-    .selectFields();
+    .selectFields(req.user?.role === "admin" ? [] : ["activeCoupons"]);
 
-  if (req.user?.role == "admin") {
-    stores = await features.query;
-  } else {
-    stores = await features.query.select("-activeCoupons");
-  }
+  stores = await features.execute();
 
   res.status(200).json({
     status: "success",
@@ -127,9 +123,9 @@ exports.getStores = catchAsyncErrors(async (req, res) => {
 exports.getStore = catchAsyncErrors(async (req, res, next) => {
   let store;
   if (req.user?.role == "admin") {
-    store = await Store.findById(req.params.storeId);
+    store = await Store.findByPk(req.params.storeId);
   } else {
-    store = await Store.findById(req.params.storeId);
+    store = await Store.findByPk(req.params.storeId);
   }
 
   if (!store) return next(new appError("Store not found", 404));
@@ -146,7 +142,7 @@ exports.updateStore = catchAsyncErrors(async (req, res, next) => {
     }
   }
 
-  const store = await Store.findById(req.params.storeId);
+  const store = await Store.findByPk(req.params.storeId);
   if (!store) {
     return next(new appError("store not found", 404));
   }
@@ -158,11 +154,8 @@ exports.updateStore = catchAsyncErrors(async (req, res, next) => {
     json.logoImage = req.body.logoImage;
   }
 
-  const updatedStore = await Store.findOneAndUpdate(
-    { _id: req.params.storeId },
-    json,
-    { new: true, runValidators: true }
-  );
+  await store.update(json);
+  const updatedStore = await Store.findByPk(req.params.storeId);
 
   if (!updatedStore) {
     return next(new appError("store not found after update", 404));
@@ -212,11 +205,13 @@ exports.updateStore = catchAsyncErrors(async (req, res, next) => {
 // });
 
 exports.deleteStore = catchAsyncErrors(async (req, res, next) => {
-  const store = await Store.findByIdAndDelete(req.params.storeId);
+  const store = await Store.findByPk(req.params.storeId);
 
   if (!store) {
     return next(new appError("Store not found", 404));
   }
+
+  await store.destroy();
 
   const imagesToDelete = [];
 

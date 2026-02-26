@@ -87,6 +87,16 @@ const KinguinProductSchema = new mongoose.Schema(
 
 // Indexes for efficient filtering
 KinguinProductSchema.index({ "derived.inStock": 1, "derived.priceMin": 1 });
+KinguinProductSchema.index(
+  {
+    "flags.hidden": 1,
+    "derived.inStock": 1,
+    "derived.searchRating": -1,
+    "derived.priceMin": 1,
+    _id: 1,
+  },
+  { name: "search_visibility_rating_price_idx" }
+);
 
 
 module.exports = mongoose.model("KinguinProduct", KinguinProductSchema);

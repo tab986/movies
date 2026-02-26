@@ -2,9 +2,7 @@ require("dotenv").config({ path: process.env.DOTENV_PATH || "./config.env" });
 
 const https = require("https");
 const axiosRaw = require("axios");
-const mongoose = require("mongoose");
-const KinguinProduct = require("../models/KinguinProduct");
-const { SyncState, SyncProfile } = require("../models/SyncState");
+const { KinguinProduct, SyncState, SyncProfile, sequelize } = require("../post-models");
 
 const httpsAgent = new https.Agent({
   keepAlive: true,
@@ -533,15 +531,14 @@ function computeDerived(up, { isCard = false } = {}) {
 // every incremental sync, we guarantee that price fields stay consistent
 // regardless of whether upstream items change or FX and fee parameters change.
 async function repriceAll() {
-  // Use a cursor to avoid loading the entire collection into memory at once
-  const cursor = KinguinProduct.find({}, { _id: 1, remote: 1, derived: 1 })
-    .lean()
-    .cursor();
+  const docs = await KinguinProduct.findAll({
+    attributes: ["id", "remote", "derived"],
+    raw: true,
+  });
 
   const bannedMerchants = BANNED_SOURCES.map((s) => s.toLowerCase());
-  const ops = [];
   let processed = 0;
-  for await (const doc of cursor) {
+  for (const doc of docs) {
     processed++;
     const remote = doc.remote || {};
     const isCard = !!remote.isCard;
@@ -565,26 +562,15 @@ async function repriceAll() {
       doc.derived?.inStock !== derived.inStock ||
       doc.derived?.priceMin !== derived.priceMin
     ) {
-      updates["derived.inStock"] = derived.inStock;
-      updates["derived.priceMin"] = derived.priceMin;
+      updates.inStock = derived.inStock;
+      updates.priceMin = derived.priceMin;
     }
     if (Object.keys(updates).length) {
-      ops.push({
-        updateOne: {
-          filter: { _id: doc._id },
-          update: { $set: updates },
-        },
-      });
+      await KinguinProduct.update(
+        { derived: { ...(doc.derived || {}), ...updates } },
+        { where: { id: doc.id } }
+      );
     }
-
-    // Flush operations in batches to avoid memory buildup
-    if (ops.length >= 1000) {
-      await KinguinProduct.bulkWrite(ops, { ordered: false });
-      ops.length = 0;
-    }
-  }
-  if (ops.length) {
-    await KinguinProduct.bulkWrite(ops, { ordered: false });
   }
   console.log(`[repriceAll] processed=${processed}`);
   console.log(`[repriceAll] ops=${ops.length}`);
@@ -649,12 +635,8 @@ async function fetchPage(page, updatedSince, filters) {
 
 // ------------------------------ Main runner --------------------------------
 async function ensureConnection() {
-  if (mongoose.connection.readyState === 1) return false;
-  await mongoose.connect(process.env.MONGODB_URI, {
-    dbName: process.env.MONGODB_DB,
-    maxPoolSize: 50,
-  });
-  return true;
+  await sequelize.authenticate();
+  return false;
 }
 
 function isoNowZ() {
@@ -670,12 +652,18 @@ async function runOnce({
   const t0 = Date.now();
 
   try {
-    const profile = await SyncProfile.findOne({ name: "default" }).lean();
+    const profile = await SyncProfile.findOne({
+      where: { name: "default" },
+      raw: true,
+    });
     const filters = profile?.filters || {};
     const fields = profile?.fields || [];
     // this is to read the time stamp of the last sync there for it is to now when the last sync was done
     // Determine the last sync time from DB; if missing, create a window based on overlap
-    const state = await SyncState.findOne({ key: "lastSync" }).lean();
+    const state = await SyncState.findOne({
+      where: { key: "lastSync" },
+      raw: true,
+    });
     // the sinceISO is the time stamp of the last sync 
     let sinceISO;
     if (!state?.value) {
@@ -718,7 +706,7 @@ async function runOnce({
       if (!Array.isArray(results) || !results.length) return;
       fetched += results.length;
 
-      const ops = [];
+      const rows = [];
       for (const p of results) {
         // STRICT gates
         // Name gates and determination of card status
@@ -830,31 +818,27 @@ async function runOnce({
             : null,
         };
 
-        ops.push({
-          updateOne: {
-            filter: { _id: Number(p.kinguinId) },
-            update: {
-              $set: {
-                remote,
-                "derived.inStock": derived.inStock,
-                "derived.priceMin": derived.priceMin,
-                "derived.platformCanonical": platformCanonical,
-                "flags.hidden": false,
-              },
-              $setOnInsert: { createdAt: new Date() },
-            },
-            upsert: true,
+        rows.push({
+          id: Number(p.kinguinId),
+          remote,
+          derived: {
+            inStock: derived.inStock,
+            priceMin: derived.priceMin,
+            platformCanonical,
           },
+          flags: { hidden: false },
         });
       }
 
-      if (ops.length) {
-        await KinguinProduct.bulkWrite(ops, { ordered: false });
-        kept += ops.length;
+      if (rows.length) {
+        await KinguinProduct.bulkCreate(rows, {
+          updateOnDuplicate: ["remote", "derived", "flags", "updatedAt"],
+        });
+        kept += rows.length;
       }
 
       console.log(
-        `[deltaSync] ${label}: fetched=${results.length}, kept_now=${ops.length}, ` +
+        `[deltaSync] ${label}: fetched=${results.length}, kept_now=${rows.length}, ` +
           `skipped={name:${skipName}, region:${skipRegion}, missingPlatform:${skipMissingPlatform}, platform:${skipPlatform}, ` +
           `missingGenres:${skipMissingGenres}, bannedGenre:${skipBannedGenre}, genre:${skipGenre}, noPrice:${skipNoPrice}}`,
       );
@@ -880,11 +864,10 @@ async function runOnce({
     await Promise.all(workers);
 
     // Write sync state with current timestamp to avoid skipping updates
-    await SyncState.updateOne(
-      { key: "lastSync" },
-      { $set: { value: isoNowZ() } },
-      { upsert: true },
-    );
+    await SyncState.upsert({
+      key: "lastSync",
+      value: isoNowZ(),
+    });
 
     
     const ms = Date.now() - t0;
@@ -901,7 +884,9 @@ async function runOnce({
 
     return { updated: kept };
   } finally {
-    if (openedHere) await mongoose.disconnect();
+    if (openedHere) {
+      // no-op for Sequelize pooled connection
+    }
   }
 }
 

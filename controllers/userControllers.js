@@ -1,16 +1,26 @@
 const catchAsyncErrors = require("../utils/catchAsyncErrors");
-const User = require("../models/userModel");
+const { Users: User } = require("../post-models");
 const appError = require("../utils/appError");
 
 const { deleteS3ObjectFromUrl } = require("../utils/deleteR2File");
+const { buildPublicFileUrl } = require("../utils/publicFileUrl");
+
+function withProfileImageUrl(userDoc) {
+  if (!userDoc) return userDoc;
+  const user = userDoc.toObject ? userDoc.toObject() : userDoc;
+  const absoluteProfileImage = buildPublicFileUrl(user.profileImage);
+  user.profileImage = absoluteProfileImage || user.profileImage;
+  user.profileImageUrl = absoluteProfileImage || null;
+  return user;
+}
 
 exports.updateProfileData = async (req, res, next) => {
   try {
-    const userId = req.user && req.user._id;
+    const userId = req.user && (req.user._id || req.user.id);
     if (!userId) {
       return res.status(401).json({ status: "fail", message: "Unauthorized" });
     }
-    const user = await User.findById(userId);
+    const user = await User.findByPk(userId);
     if (!user) {
       return res
         .status(404)
@@ -28,7 +38,10 @@ exports.updateProfileData = async (req, res, next) => {
 
     await user.save();
 
-    res.status(200).json({ status: "success", data: { user } });
+    res.status(200).json({
+      status: "success",
+      data: { user: withProfileImageUrl(user) },
+    });
   } catch (err) {
     next(err);
   }
@@ -36,11 +49,11 @@ exports.updateProfileData = async (req, res, next) => {
 
 exports.updateProfileImage = async (req, res, next) => {
   try {
-    const userId = req.user && req.user._id;
+    const userId = req.user && (req.user._id || req.user.id);
     if (!userId) {
       return res.status(401).json({ status: "fail", message: "Unauthorized" });
     }
-    const user = await User.findById(userId);
+    const user = await User.findByPk(userId);
     if (!user) {
       return res
         .status(404)
@@ -52,9 +65,10 @@ exports.updateProfileImage = async (req, res, next) => {
     // If a new image is provided and it's different from the existing
     // profileImage, schedule the old one for deletion and update the
     // user's profileImage field.
-    if (req.body.image && req.body.image !== user.profileImage) {
+    const normalizedIncomingImage = buildPublicFileUrl(req.body.image);
+    if (normalizedIncomingImage && normalizedIncomingImage !== user.profileImage) {
       if (user.profileImage) imagesToDelete.push(user.profileImage);
-      user.profileImage = req.body.image;
+      user.profileImage = normalizedIncomingImage;
     }
 
     await user.save();
@@ -62,7 +76,10 @@ exports.updateProfileImage = async (req, res, next) => {
     // Delete any old images from R2 after the user document is saved
     await Promise.all(imagesToDelete.map(deleteS3ObjectFromUrl));
 
-    res.status(200).json({ status: "success", data: { user } });
+    res.status(200).json({
+      status: "success",
+      data: { user: withProfileImageUrl(user) },
+    });
   } catch (err) {
     next(err);
   }
@@ -70,14 +87,14 @@ exports.updateProfileImage = async (req, res, next) => {
 
 exports.deleteUser = catchAsyncErrors(async (req, res, next) => {
   let deletedUser;
-  if ((!req.user.role == "admin")) {
-    deletedUser = await User.findByIdAndUpdate(req.body.user, {
+  const targetId = req.user.role === "admin" ? req.body.user : (req.user._id || req.user.id);
+  deletedUser = await User.findByPk(targetId);
+  if (deletedUser) {
+    await deletedUser.update({
       active: false,
     });
   } else {
-    deletedUser = await User.findByIdAndUpdate(req.user._id, {
-      active: false,
-    });
+    deletedUser = null;
   }
   if (!deletedUser) {
     return next(new appError("user not found", 404));
