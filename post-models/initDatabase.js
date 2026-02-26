@@ -20,6 +20,24 @@ async function initDatabaseTables() {
 
   try {
     await sequelize.sync();
+    await sequelize.query(`
+      CREATE INDEX IF NOT EXISTS idx_kinguin_price_min_num
+      ON kinguin_products ((NULLIF("derived"->>'priceMin', '')::double precision));
+    `);
+    await sequelize.query(`
+      CREATE INDEX IF NOT EXISTS idx_kinguin_remote_genres_gin
+      ON kinguin_products
+      USING gin (("remote"->'genres'));
+    `);
+    await sequelize.query(`
+      CREATE INDEX IF NOT EXISTS idx_kinguin_remote_tags_gin
+      ON kinguin_products
+      USING gin (("remote"->'tags'));
+    `);
+    await sequelize.query(`
+      CREATE INDEX IF NOT EXISTS idx_kinguin_hidden_instock_expr
+      ON kinguin_products ((("flags"->>'hidden') IS DISTINCT FROM 'true'), ("derived"->'inStock'));
+    `);
     console.log("[db-init] Table initialization completed successfully");
     return true;
   } catch (error) {

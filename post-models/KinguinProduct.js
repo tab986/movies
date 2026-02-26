@@ -15,6 +15,29 @@ module.exports = (sequelize, DataTypes) => {
       indexes: [
         { fields: ["createdAt"] },
         { fields: ["updatedAt"] },
+        {
+          name: "idx_kinguin_price_min_num",
+          fields: [
+            sequelize.literal(`(NULLIF("derived"->>'priceMin', '')::double precision)`),
+          ],
+        },
+        {
+          name: "idx_kinguin_remote_genres_gin",
+          using: "gin",
+          fields: [sequelize.literal(`("remote"->'genres')`)],
+        },
+        {
+          name: "idx_kinguin_remote_tags_gin",
+          using: "gin",
+          fields: [sequelize.literal(`("remote"->'tags')`)],
+        },
+        {
+          name: "idx_kinguin_hidden_instock_expr",
+          fields: [
+            sequelize.literal(`(("flags"->>'hidden') IS DISTINCT FROM 'true')`),
+            sequelize.literal(`("derived"->'inStock')`),
+          ],
+        },
       ],
     }
   );

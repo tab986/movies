@@ -37,10 +37,24 @@ function normalizePlatform(p) {
   return n;
 }
 
+const PRICE_MIN_NUMERIC_SQL = `NULLIF("derived"->>'priceMin', '')::double precision`;
+const METACRITIC_NUMERIC_SQL = `NULLIF("remote"->>'metacriticScore', '')::double precision`;
+const NOT_HIDDEN_SQL = `"flags"->>'hidden' IS DISTINCT FROM 'true'`;
+const IN_STOCK_SQL = `"derived"->'inStock' = 'true'::jsonb`;
+
+function toJsonbArrayLiteral(values) {
+  return `'${JSON.stringify(values).replace(/'/g, "''")}'::jsonb`;
+}
+
+function toTextArrayLiteral(values) {
+  const escaped = values.map((v) => `'${String(v).replace(/'/g, "''")}'`);
+  return `ARRAY[${escaped.join(", ")}]::text[]`;
+}
+
 function buildListQuery(qs) {
   const and = [
-    Sequelize.where(Sequelize.json("flags.hidden"), { [Op.not]: true }),
-    Sequelize.where(Sequelize.json("derived.inStock"), true),
+    Sequelize.literal(NOT_HIDDEN_SQL),
+    Sequelize.literal(IN_STOCK_SQL),
   ];
 
   const page = Math.max(1, Number(qs.page) || 1);
@@ -117,13 +131,17 @@ function buildListQuery(qs) {
       .map((s) => s.trim())
       .filter(Boolean);
     if (list.length === 1) {
-      and.push(Sequelize.where(Sequelize.json("remote.genres"), {
-        [Op.contains]: [list[0]],
-      }));
+      and.push(
+        Sequelize.literal(
+          `("remote"->'genres') @> ${toJsonbArrayLiteral([list[0]])}`
+        )
+      );
     } else if (list.length > 1) {
-      and.push(Sequelize.where(Sequelize.json("remote.genres"), {
-        [Op.overlap]: list,
-      }));
+      and.push(
+        Sequelize.literal(
+          `("remote"->'genres') ?| ${toTextArrayLiteral(list)}`
+        )
+      );
     }
   }
 
@@ -134,9 +152,9 @@ function buildListQuery(qs) {
       .map((s) => s.trim())
       .filter(Boolean);
     if (list.length) {
-      and.push(Sequelize.where(Sequelize.json("remote.tags"), {
-        [Op.contains]: list,
-      }));
+      and.push(
+        Sequelize.literal(`("remote"->'tags') @> ${toJsonbArrayLiteral(list)}`)
+      );
     }
   }
 
@@ -147,7 +165,7 @@ function buildListQuery(qs) {
     if (qs.priceTo) range[Op.lte] = Number(qs.priceTo);
     and.push(
       Sequelize.where(
-        Sequelize.cast(Sequelize.json("derived.priceMin"), "double precision"),
+        Sequelize.literal(PRICE_MIN_NUMERIC_SQL),
         range
       )
     );
@@ -164,20 +182,14 @@ function buildListQuery(qs) {
     if (qs.metacriticScoreTo) range[Op.lte] = Number(qs.metacriticScoreTo);
     and.push(
       Sequelize.where(
-        Sequelize.cast(
-          Sequelize.json("remote.metacriticScore"),
-          "double precision"
-        ),
+        Sequelize.literal(METACRITIC_NUMERIC_SQL),
         range
       )
     );
   } else if (qs.metacriticScore) {
     and.push(
       Sequelize.where(
-        Sequelize.cast(
-          Sequelize.json("remote.metacriticScore"),
-          "double precision"
-        ),
+        Sequelize.literal(METACRITIC_NUMERIC_SQL),
         Number(qs.metacriticScore)
       )
     );
@@ -227,6 +239,10 @@ function buildListQuery(qs) {
       [Sequelize.literal(`"overrides"->>'name'`), dir],
       [Sequelize.literal(`"remote"->>'name'`), dir],
     ];
+  } else if (sortByKey === "priceMin") {
+    order = [[Sequelize.literal(PRICE_MIN_NUMERIC_SQL), dir]];
+  } else if (sortByKey === "metacriticScore") {
+    order = [[Sequelize.literal(METACRITIC_NUMERIC_SQL), dir]];
   } else {
     const field = sortFieldMap[sortByKey];
     order = Array.isArray(field)
@@ -249,13 +265,15 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
   const { where, page, limit, order } = buildListQuery(req.query);
   const skip = (page - 1) * limit;
 
-  let pageCount = await KinguinProduct.count({ where });
-  pageCount = Math.ceil(pageCount / limit);
-
-  const [items, count] = await Promise.all([
-    KinguinProduct.findAll({ where, order, offset: skip, limit, raw: true }),
-    KinguinProduct.count(),
-  ]);
+  const totalFilteredCount = await KinguinProduct.count({ where });
+  const pageCount = Math.ceil(totalFilteredCount / limit);
+  const items = await KinguinProduct.findAll({
+    where,
+    order,
+    offset: skip,
+    limit,
+    raw: true,
+  });
 
   // helpers (inline)
   const truncate2 = (n) => Math.trunc(Number(n) * 100) / 100;
@@ -477,7 +495,7 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
 
   res.status(200).json({
     status: "success",
-    meta: { pageCount, page, limit, item_count: count },
+    meta: { pageCount, page, limit, item_count: totalFilteredCount },
     results,
   });
 });
