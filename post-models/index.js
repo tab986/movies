@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const { sequelize, Sequelize } = require("./post-models/db");
+const { sequelize, Sequelize } = require("./db");
 
 const db = {};
 const basename = path.basename(__filename);
@@ -15,11 +15,13 @@ fs.readdirSync(__dirname)
     );
   })
   .forEach((file) => {
-    const defineModel = require(path.join(__dirname, file));
-    if (typeof defineModel !== "function") return;
+    if (file !== "initDatabase.js") {
+      const defineModel = require(path.join(__dirname, file));
+      if (typeof defineModel !== "function") return;
 
-    const model = defineModel(sequelize, Sequelize.DataTypes);
-    db[model.name] = model;
+      const model = defineModel(sequelize, Sequelize.DataTypes);
+      db[model.name] = model;
+    }
   });
 
 Object.keys(db).forEach((modelName) => {
