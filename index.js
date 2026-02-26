@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const { sequelize, Sequelize } = require("./db");
+const { sequelize, Sequelize } = require("./post-models/db");
 
 const db = {};
 const basename = path.basename(__filename);

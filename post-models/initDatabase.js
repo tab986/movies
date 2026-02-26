@@ -1,4 +1,4 @@
-const { sequelize } = require("./index");
+const { sequelize } = require("./db");
 
 function isInitEnabled(flagValue) {
   if (typeof flagValue !== "string") return false;
