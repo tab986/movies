@@ -1,5 +1,5 @@
 const appError = require("../utils/appError");
-const Order = require("../models/Orders");
+const { Order } = require("../post-models");
 const {
   submitKinguinOrderByProductId,
   prepareKinguinOrderProduct,
@@ -8,7 +8,8 @@ const {
 exports.buySync = async (req, res, next) => {
   try {
     const { productId, qty = 1 } = req.body || {};
-    if (!req.user?._id) {
+    const userId = req.user?._id || req.user?.id;
+    if (!userId) {
       throw new appError("Authenticated user is required", 401);
     }
 
@@ -21,7 +22,7 @@ exports.buySync = async (req, res, next) => {
     const totalPrice = unitPrice * quantity;
 
     const order = await Order.create({
-      user: req.user._id,
+      user: userId,
       product: String(kinguinProduct.kinguinId),
       quantity,
       unitPrice,
@@ -41,7 +42,7 @@ exports.buySync = async (req, res, next) => {
     const kinguinOrderResponse = await submitKinguinOrderByProductId({
       productId: kinguinProduct.kinguinId,
       qty: quantity,
-      orderExternalId: String(order._id),
+      orderExternalId: String(order.id),
       kinguinProduct,
     });
 

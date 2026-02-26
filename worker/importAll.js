@@ -17,8 +17,7 @@ require("dotenv").config({ path: process.env.DOTENV_PATH || "./config.env" });
 
 const https = require("https");
 const axiosRaw = require("axios");
-const mongoose = require("mongoose");
-const KinguinProduct = require("../models/KinguinProduct");
+const { KinguinProduct, sequelize } = require("../post-models");
 
 // ------------------------------- HTTP client -------------------------------
 const httpsAgent = new https.Agent({
@@ -37,9 +36,6 @@ const axios = axiosRaw.create({
 const KINGUIN_BASE =
   process.env.KINGUIN_API_BASE || "https://gateway.kinguin.net/esa/api"; // what the fuck why the api key is here
 const KINGUIN_KEY = process.env.KINGUIN_API_KEY;
-const MONGODB_URI = process.env.MONGODB_URI;
-const MONGODB_DB = process.env.MONGODB_DB;
-
 const PAGE_SIZE = Number(process.env.SYNC_PAGE_SIZE || 100); // ESA max = 100
 const CONCURRENCY = Number(process.env.SYNC_CONCURRENCY || 10); // 8–12 is a good range
 
@@ -395,10 +391,8 @@ async function fetchPage(page) {
 // ------------------------------ Main runner --------------------------------
 async function runImportAll({ logger = console } = {}) {
   if (!KINGUIN_KEY) throw new Error("KINGUIN_API_KEY missing");
-  if (!MONGODB_URI) throw new Error("MONGODB_URI missing");
-
-  await mongoose.connect(MONGODB_URI, { dbName: MONGODB_DB, maxPoolSize: 50 });
-  logger.log("DB connected");
+  await sequelize.authenticate();
+  logger.log("Postgres connected");
 
   // Head to get item_count
   const head = await fetchPage(1);
@@ -425,7 +419,7 @@ async function runImportAll({ logger = console } = {}) {
     if (!Array.isArray(results) || results.length === 0) return;
     fetched += results.length;
 
-    const ops = [];
+    const rows = [];
     for (const p of results) {
       // ---- STRICT GATES ----
       // Name
@@ -779,35 +773,31 @@ async function runImportAll({ logger = console } = {}) {
         updatedAt: p.updatedAt ? new Date(p.updatedAt) : new Date(),
       };
         //data storing 
-      ops.push({
-        updateOne: {
-          filter: { _id: Number(p.kinguinId) },
-          update: {
-            $set: {
-              remote,
-              "derived.inStock": derived.inStock,
-              "derived.priceMin": derived.priceMin, // IQD final
-              "derived.platformCanonical": platformCanonical, // canonical for filters
-              "flags.hidden": false,
-            },
-            $setOnInsert: { createdAt: new Date() },
-          },
-          upsert: true,
+      rows.push({
+        id: Number(p.kinguinId),
+        remote,
+        derived: {
+          inStock: derived.inStock,
+          priceMin: derived.priceMin,
+          platformCanonical,
         },
+        flags: { hidden: false },
       });
     }
 
-    if (ops.length) {
+    if (rows.length) {
       try {
-        await KinguinProduct.bulkWrite(ops, { ordered: false });
+        await KinguinProduct.bulkCreate(rows, {
+          updateOnDuplicate: ["remote", "derived", "flags", "updatedAt"],
+        });
       } catch (e) {
-        logger.error(`[importAll] bulkWrite error ${label}: ${e.message}`);
+        logger.error(`[importAll] bulkCreate error ${label}: ${e.message}`);
       }
-      kept += ops.length;
+      kept += rows.length;
     }
 
     logger.log(
-      `[importAll] ${label}: fetched=${results.length}, kept_now=${ops.length}, ` +
+      `[importAll] ${label}: fetched=${results.length}, kept_now=${rows.length}, ` +
         `skipped={name:${skipName}, region:${skipRegion}, missingPlatform:${skipMissingPlatform}, platform:${skipPlatform}, ` +
         `missingGenres:${skipMissingGenres}, bannedGenre:${skipBannedGenre}, genre:${skipGenre}, noPrice:${skipNoPrice}}`,
     );
@@ -847,9 +837,6 @@ async function runImportAll({ logger = console } = {}) {
       `skipped={name:${skipName}, region:${skipRegion}, missingPlatform:${skipMissingPlatform}, platform:${skipPlatform}, ` +
       `missingGenres:${skipMissingGenres}, bannedGenre:${skipBannedGenre}, genre:${skipGenre}, noPrice:${skipNoPrice}}`,
   );
-
-  // await mongoose.disconnect();
-  // logger.log("DB disconnected");
 
   return {
     processed: fetched,

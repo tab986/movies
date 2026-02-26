@@ -1,4 +1,4 @@
-const Ad = require("../models/adsModel.js");
+const { Ad } = require("../post-models");
 const AppError = require("../utils/appError");
 const { deleteS3ObjectFromUrl } = require("../utils/s3Utils");
 const catchAsyncErrors = require("../utils/catchAsyncErrors.js");
@@ -8,11 +8,13 @@ exports.createAd = factory.createOne(Ad, "ads");
 
 exports.deleteAd = catchAsyncErrors(async (req, res, next) => {
   const adId = req.params.adId;
-  const deletedAd = await Ad.findByIdAndDelete(adId);
+  const deletedAd = await Ad.findByPk(adId);
 
   if (!deletedAd) {
     return next(new AppError("AD_NOT_FOUND", 404));
   }
+
+  await deletedAd.destroy();
 
   if (deletedAd.adPicture) {
     await deleteS3ObjectFromUrl(deletedAd.adPicture);
@@ -26,7 +28,7 @@ exports.deleteAd = catchAsyncErrors(async (req, res, next) => {
 
 exports.getAds = factory.getAll(Ad, "ads");
 exports.getAd = catchAsyncErrors(async (req, res, next) => {
-  const ad = await Ad.findById(req.params.adId);
+  const ad = await Ad.findByPk(req.params.adId);
 
   if (!ad) {
     return next(new AppError("ad not found", 404));
@@ -41,15 +43,16 @@ exports.getAd = catchAsyncErrors(async (req, res, next) => {
 });
 
 exports.updateAd = catchAsyncErrors(async (req, res, next) => {
+  let json;
   if (!req.body.json) {
     json = req.body;
   } else {
-    const json = JSON.parse(req.body.json);
+    json = JSON.parse(req.body.json);
   }
   // role-aware filter like your hotel code
   const { adId } = req.params;
 
-  const currentAd = await Ad.findOne({ _id: adId });
+  const currentAd = await Ad.findByPk(adId);
   if (!currentAd) {
     return next(new AppError("ad not found", 404));
   }
@@ -63,10 +66,8 @@ exports.updateAd = catchAsyncErrors(async (req, res, next) => {
     json.adPicture = req.body.adPicture;
   }
 
-  const updatedAd = await Ad.findOneAndUpdate({ _id: adId }, json, {
-    new: true,
-    runValidators: true,
-  });
+  await currentAd.update(json);
+  const updatedAd = await Ad.findByPk(adId);
 
   if (!updatedAd) {
     return next(new AppError("ad update failed", 500));

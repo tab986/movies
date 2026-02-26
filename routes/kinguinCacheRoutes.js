@@ -17,6 +17,7 @@ router.get('/', async (req, res) => {
     limit = 24,
     q,
     regionId,
+    genres,
     tags,
     priceFrom,
     priceTo,
@@ -24,22 +25,49 @@ router.get('/', async (req, res) => {
     sortType = 'asc',
   } = req.query;
 
-  const where = {
-    'flags.hidden': { $ne: true },
-    'derived.inStock': true,
-  };
-  if (regionId) where['remote.regionId'] = Number(regionId);
+  const and = [
+    Sequelize.literal(NOT_HIDDEN_SQL),
+    Sequelize.literal(IN_STOCK_SQL),
+  ];
+  if (regionId) and.push(Sequelize.where(Sequelize.json("remote.regionId"), Number(regionId)));
+  if (genres) {
+    const arr = String(genres)
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (arr.length === 1) {
+      and.push(
+        Sequelize.literal(
+          `("remote"->'genres') @> ${toJsonbArrayLiteral([arr[0]])}`
+        )
+      );
+    } else if (arr.length > 1) {
+      and.push(
+        Sequelize.literal(`("remote"->'genres') ?| ${toTextArrayLiteral(arr)}`)
+      );
+    }
+  }
   if (tags) {
     const arr = String(tags)
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
-    if (arr.length) where['remote.tags'] = { $all: arr };
+    if (arr.length) {
+      and.push(
+        Sequelize.literal(`("remote"->'tags') @> ${toJsonbArrayLiteral(arr)}`)
+      );
+    }
   }
   if (priceFrom || priceTo) {
-    where['derived.priceMin'] = {};
-    if (priceFrom) where['derived.priceMin'].$gte = Number(priceFrom);
-    if (priceTo) where['derived.priceMin'].$lte = Number(priceTo);
+    const range = {};
+    if (priceFrom) range[Op.gte] = Number(priceFrom);
+    if (priceTo) range[Op.lte] = Number(priceTo);
+    and.push(
+      Sequelize.where(
+        Sequelize.literal(PRICE_MIN_NUMERIC_SQL),
+        range
+      )
+    );
   }
   const sortDir = sortType === "desc" ? -1 : 1;
   const sortFieldMap = {
@@ -85,7 +113,7 @@ router.get('/', async (req, res) => {
     ]);
   }
   const results = items.map((p) => ({
-    kinguinId: p._id,
+    kinguinId: p.id,
     name: p.overrides?.name || p.remote?.name,
     priceMin: p.derived?.priceMin,
     inStock: p.derived?.inStock,
@@ -103,12 +131,12 @@ router.get('/', async (req, res) => {
 // GET /api/v1/catalog/:kinguinId – return a merged view for a single product
 router.get('/:kinguinId', async (req, res) => {
   const id = Number(req.params.kinguinId);
-  const p = await KinguinProduct.findById(id).lean();
+  const p = await KinguinProduct.findByPk(id, { raw: true });
   if (!p) return res.status(404).json({ status: 'not_found' });
   res.json({
     status: 'success',
     data: {
-      kinguinId: p._id,
+      kinguinId: p.id,
       name: p.overrides?.name || p.remote?.name,
       description: p.overrides?.description || p.remote?.description,
       images: p.overrides?.images || p.remote?.images,
