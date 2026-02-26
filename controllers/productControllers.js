@@ -4,6 +4,10 @@ const catchAsyncErrors = require("../utils/catchAsyncErrors");
 const appError = require("../utils/appError");
 const { convertFromIQD } = require("../utils/currency");
 const { Op } = require("sequelize");
+const {
+  buildSearchDescriptor,
+  buildSearchPipelines,
+} = require("../utils/searchRanking");
 
 // controllers/localProductsController.js (excerpt)
 
@@ -52,10 +56,11 @@ function toTextArrayLiteral(values) {
 }
 
 function buildListQuery(qs) {
-  const and = [
-    Sequelize.literal(NOT_HIDDEN_SQL),
-    Sequelize.literal(IN_STOCK_SQL),
-  ];
+  const where = {
+    "flags.hidden": { $ne: true },
+    "derived.inStock": true,
+  };
+  let search = null;
 
   const page = Math.max(1, Number(qs.page) || 1);
   const limit = Math.max(1, Math.min(200, Number(qs.limit) || 24));
@@ -197,19 +202,10 @@ function buildListQuery(qs) {
 
   // Search
   if (qs.q) {
-    const search = `%${String(qs.q).trim()}%`;
-    and.push({
-      [Op.or]: [
-        Sequelize.where(
-          Sequelize.cast(Sequelize.json("overrides.name"), "text"),
-          { [Op.iLike]: search }
-        ),
-        Sequelize.where(
-          Sequelize.cast(Sequelize.json("remote.name"), "text"),
-          { [Op.iLike]: search }
-        ),
-      ],
-    });
+    const searchText = String(qs.q).trim();
+    if (searchText) {
+      search = buildSearchDescriptor(searchText);
+    }
   }
 
   // -------- Sorting --------
@@ -252,7 +248,7 @@ function buildListQuery(qs) {
       : [[field, dir]];
   }
 
-  return { where: { [Op.and]: and }, page, limit, order };
+  return { where, page, limit, sort, search };
 }
 
 const {
@@ -262,18 +258,35 @@ const {
 // const { getShopIdsForPlatform } = require("../utils/platforms"); // if you ever need shops
 
 exports.listProducts = catchAsyncErrors(async (req, res, next) => {
-  const { where, page, limit, order } = buildListQuery(req.query);
+  const { where, page, limit, sort, search } = buildListQuery(req.query);
   const skip = (page - 1) * limit;
+  let items;
+  let pageCount;
 
-  const totalFilteredCount = await KinguinProduct.count({ where });
-  const pageCount = Math.ceil(totalFilteredCount / limit);
-  const items = await KinguinProduct.findAll({
-    where,
-    order,
-    offset: skip,
-    limit,
-    raw: true,
-  });
+  if (search) {
+    const { dataPipeline, countPipeline } = buildSearchPipelines({
+      where,
+      searchDescriptor: search,
+      sort,
+      skip,
+      limit,
+    });
+
+    const [paged, countRows] = await Promise.all([
+      KinguinProduct.aggregate(dataPipeline),
+      KinguinProduct.aggregate(countPipeline),
+    ]);
+
+    items = paged;
+    const totalMatched = countRows?.[0]?.count || 0;
+    pageCount = Math.ceil(totalMatched / limit);
+  } else {
+    let counted = await KinguinProduct.find(where).sort(sort).clone().countDocuments();
+    pageCount = Math.ceil(counted / limit);
+    items = await KinguinProduct.find(where).sort(sort).skip(skip).limit(limit).lean();
+  }
+
+  const count = await KinguinProduct.countDocuments();
 
   // helpers (inline)
   const truncate2 = (n) => Math.trunc(Number(n) * 100) / 100;

@@ -3,21 +3,11 @@
 // exclude delisted or out-of-stock products by default.
 
 const router = require('express').Router();
-const { KinguinProduct } = require("../post-models");
-const { Op, Sequelize } = require("sequelize");
-
-const PRICE_MIN_NUMERIC_SQL = `NULLIF("derived"->>'priceMin', '')::double precision`;
-const NOT_HIDDEN_SQL = `"flags"->>'hidden' IS DISTINCT FROM 'true'`;
-const IN_STOCK_SQL = `"derived"->'inStock' = 'true'::jsonb`;
-
-function toJsonbArrayLiteral(values) {
-  return `'${JSON.stringify(values).replace(/'/g, "''")}'::jsonb`;
-}
-
-function toTextArrayLiteral(values) {
-  const escaped = values.map((v) => `'${String(v).replace(/'/g, "''")}'`);
-  return `ARRAY[${escaped.join(", ")}]::text[]`;
-}
+const KinguinProduct = require('../models/KinguinProduct');
+const {
+  buildSearchDescriptor,
+  buildSearchPipelines,
+} = require("../utils/searchRanking");
 
 // GET /api/v1/catalog?query params
 // Supports pagination, text search, region, tags, price range, and sorting.
@@ -79,41 +69,49 @@ router.get('/', async (req, res) => {
       )
     );
   }
-  if (q) {
-    const search = `%${String(q).trim()}%`;
-    and.push({
-      [Op.or]: [
-        Sequelize.where(Sequelize.cast(Sequelize.json("overrides.name"), "text"), { [Op.iLike]: search }),
-        Sequelize.where(Sequelize.cast(Sequelize.json("remote.name"), "text"), { [Op.iLike]: search }),
-      ],
-    });
-  }
-  const where = { [Op.and]: and };
-
-  const dir = String(sortType).toLowerCase() === "desc" ? "DESC" : "ASC";
-  const sortByKey = String(sortBy);
-  let sort;
-  if (sortByKey === "priceMin") {
-    sort = [[Sequelize.literal(PRICE_MIN_NUMERIC_SQL), dir]];
-  } else if (sortByKey === "name") {
-    sort = [
-      [Sequelize.literal(`"overrides"->>'name'`), dir],
-      [Sequelize.literal(`"remote"->>'name'`), dir],
-    ];
-  } else {
-    sort = [[sortByKey, dir]];
-  }
+  const sortDir = sortType === "desc" ? -1 : 1;
+  const sortFieldMap = {
+    priceMin: "derived.priceMin",
+    updatedAt: "updatedAt",
+    name: ["overrides.name", "remote.name"],
+    releaseDate: "remote.releaseDate",
+    metacriticScore: "remote.metacriticScore",
+  };
+  const mappedField = sortFieldMap[sortBy] || "derived.priceMin";
+  const sort = Array.isArray(mappedField)
+    ? { [mappedField[0]]: sortDir, [mappedField[1]]: sortDir }
+    : { [mappedField]: sortDir };
   const skip = (Number(page) - 1) * Number(limit);
-  const [items, count] = await Promise.all([
-    KinguinProduct.findAll({
+
+  const searchDescriptor = buildSearchDescriptor(q);
+  let items;
+  let count;
+
+  if (searchDescriptor) {
+    const { dataPipeline, countPipeline } = buildSearchPipelines({
       where,
-      order: sort,
-      offset: skip,
+      searchDescriptor,
+      sort,
+      skip,
       limit: Number(limit),
-      raw: true,
-    }),
-    KinguinProduct.count({ where }),
-  ]);
+    });
+
+    const [searchedItems, countRows] = await Promise.all([
+      KinguinProduct.aggregate(dataPipeline),
+      KinguinProduct.aggregate(countPipeline),
+    ]);
+    items = searchedItems;
+    count = countRows?.[0]?.count || 0;
+  } else {
+    [items, count] = await Promise.all([
+      KinguinProduct.find(where)
+        .sort(sort)
+        .skip(skip)
+        .limit(Number(limit))
+        .lean(),
+      KinguinProduct.countDocuments(where),
+    ]);
+  }
   const results = items.map((p) => ({
     kinguinId: p.id,
     name: p.overrides?.name || p.remote?.name,
