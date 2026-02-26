@@ -80,7 +80,6 @@ function buildListQuery(qs) {
 
   // -------- Release date (stored as "YYYY-MM-DD" string) --------
   // If you store as Date in Mongo, swap the assignments to new Date("...T00:00:00Z")
-  const releaseField = "remote.releaseDate";
   const ymd = (v) => String(v).slice(0, 10); // if you're storing as "YYYY-MM-DD" strings
 
   if (qs.releaseDateFrom || qs.releaseDateTo || qs.releaseDate) {
@@ -223,14 +222,6 @@ function buildListQuery(qs) {
   }
 
   // -------- Sorting --------
-  const sortFieldMap = {
-    priceMin: "derived.priceMin",
-    updatedAt: "updatedAt",
-    name: ["overrides.name", "remote.name"],
-    releaseDate: releaseField,
-    metacriticScore: "remote.metacriticScore",
-  };
-
   const sortByKey = [
     "priceMin",
     "updatedAt",
@@ -240,10 +231,20 @@ function buildListQuery(qs) {
   ].includes(qs.sortBy)
     ? qs.sortBy
     : "priceMin";
+  const sortDir =
+    String(qs.sortType || "asc").toLowerCase() === "desc" ? "DESC" : "ASC";
+  const sortableExprMap = {
+    priceMin: Sequelize.literal(PRICE_MIN_NUMERIC_SQL),
+    metacriticScore: Sequelize.literal(METACRITIC_NUMERIC_SQL),
+    releaseDate: Sequelize.literal(`"remote"->>'releaseDate'`),
+    name: Sequelize.literal(SEARCH_NAME_SQL),
+  };
 
-  if (and.length) {
-    where.$and = and;
-  }
+  const primaryOrder =
+    sortByKey === "updatedAt"
+      ? [["updatedAt", sortDir]]
+      : [[sortableExprMap[sortByKey], sortDir]];
+  const order = [...primaryOrder, ["id", "ASC"]];
 
   return { where: { [Op.and]: and }, page, limit, order, search };
 }
