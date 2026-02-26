@@ -4,6 +4,10 @@
 
 const router = require('express').Router();
 const KinguinProduct = require('../models/KinguinProduct');
+const {
+  buildSearchDescriptor,
+  buildSearchPipelines,
+} = require("../utils/searchRanking");
 
 // GET /api/v1/catalog?query params
 // Supports pagination, text search, region, tags, price range, and sorting.
@@ -37,25 +41,49 @@ router.get('/', async (req, res) => {
     if (priceFrom) where['derived.priceMin'].$gte = Number(priceFrom);
     if (priceTo) where['derived.priceMin'].$lte = Number(priceTo);
   }
-  if (q) {
-    const regex = new RegExp(q, 'i');
-    where.$or = [
-      { 'overrides.name': regex },
-      { 'remote.name': regex },
-    ];
-  }
-
-  const sortDir = sortType === 'desc' ? -1 : 1;
-  const sort = { [sortBy]: sortDir };
+  const sortDir = sortType === "desc" ? -1 : 1;
+  const sortFieldMap = {
+    priceMin: "derived.priceMin",
+    updatedAt: "updatedAt",
+    name: ["overrides.name", "remote.name"],
+    releaseDate: "remote.releaseDate",
+    metacriticScore: "remote.metacriticScore",
+  };
+  const mappedField = sortFieldMap[sortBy] || "derived.priceMin";
+  const sort = Array.isArray(mappedField)
+    ? { [mappedField[0]]: sortDir, [mappedField[1]]: sortDir }
+    : { [mappedField]: sortDir };
   const skip = (Number(page) - 1) * Number(limit);
-  const [items, count] = await Promise.all([
-    KinguinProduct.find(where)
-      .sort(sort)
-      .skip(skip)
-      .limit(Number(limit))
-      .lean(),
-    KinguinProduct.countDocuments(where),
-  ]);
+
+  const searchDescriptor = buildSearchDescriptor(q);
+  let items;
+  let count;
+
+  if (searchDescriptor) {
+    const { dataPipeline, countPipeline } = buildSearchPipelines({
+      where,
+      searchDescriptor,
+      sort,
+      skip,
+      limit: Number(limit),
+    });
+
+    const [searchedItems, countRows] = await Promise.all([
+      KinguinProduct.aggregate(dataPipeline),
+      KinguinProduct.aggregate(countPipeline),
+    ]);
+    items = searchedItems;
+    count = countRows?.[0]?.count || 0;
+  } else {
+    [items, count] = await Promise.all([
+      KinguinProduct.find(where)
+        .sort(sort)
+        .skip(skip)
+        .limit(Number(limit))
+        .lean(),
+      KinguinProduct.countDocuments(where),
+    ]);
+  }
   const results = items.map((p) => ({
     kinguinId: p._id,
     name: p.overrides?.name || p.remote?.name,

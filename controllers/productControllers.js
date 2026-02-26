@@ -4,6 +4,10 @@ const KinguinProduct = require("../models/KinguinProduct"); // local mirror sche
 const catchAsyncErrors = require("../utils/catchAsyncErrors");
 const appError = require("../utils/appError");
 const { convertFromIQD } = require("../utils/currency");
+const {
+  buildSearchDescriptor,
+  buildSearchPipelines,
+} = require("../utils/searchRanking");
 
 // controllers/localProductsController.js (excerpt)
 
@@ -42,7 +46,7 @@ function buildListQuery(qs) {
     "flags.hidden": { $ne: true },
     "derived.inStock": true,
   };
-  let hasSearchQuery = false;
+  let search = null;
 
   const page = Math.max(1, Number(qs.page) || 1);
   const limit = Math.max(1, Math.min(200, Number(qs.limit) || 24));
@@ -146,27 +150,7 @@ function buildListQuery(qs) {
   if (qs.q) {
     const searchText = String(qs.q).trim();
     if (searchText) {
-      const firstChar = searchText[0];
-      const escapedFirstChar = firstChar.replace(
-        /[.*+?^${}()|[\]\\]/g,
-        "\\$&"
-      );
-      hasSearchQuery = true;
-
-      // Enforce first-character matching on the effective display name:
-      // overrides.name -> remote.name -> remote.originalName.
-      where.$expr = {
-        $regexMatch: {
-          input: {
-            $ifNull: [
-              "$overrides.name",
-              { $ifNull: ["$remote.name", "$remote.originalName"] },
-            ],
-          },
-          regex: `^${escapedFirstChar}`,
-          options: "i",
-        },
-      };
+      search = buildSearchDescriptor(searchText);
     }
   }
 
@@ -201,7 +185,7 @@ function buildListQuery(qs) {
       : { [field]: dir };
   }
 
-  return { where, page, limit, sort, hasSearchQuery };
+  return { where, page, limit, sort, search };
 }
 
 const {
@@ -211,23 +195,35 @@ const {
 // const { getShopIdsForPlatform } = require("../utils/platforms"); // if you ever need shops
 
 exports.listProducts = catchAsyncErrors(async (req, res, next) => {
-  const { where, page, limit, sort, hasSearchQuery } = buildListQuery(req.query);
+  const { where, page, limit, sort, search } = buildListQuery(req.query);
   const skip = (page - 1) * limit;
+  let items;
+  let pageCount;
 
-  let pageCount = await KinguinProduct.find(where)
-    .sort(sort)
-    .clone()
-    .countDocuments();
-  pageCount = Math.ceil(pageCount / limit);
+  if (search) {
+    const { dataPipeline, countPipeline } = buildSearchPipelines({
+      where,
+      searchDescriptor: search,
+      sort,
+      skip,
+      limit,
+    });
 
-  const listSort = hasSearchQuery
-    ? { "derived.searchRating": -1, ...sort, _id: 1 }
-    : sort;
-  const listQuery = KinguinProduct.find(where).sort(listSort).skip(skip).limit(limit);
-  const [items, count] = await Promise.all([
-    listQuery.lean(),
-    KinguinProduct.countDocuments(),
-  ]);
+    const [paged, countRows] = await Promise.all([
+      KinguinProduct.aggregate(dataPipeline),
+      KinguinProduct.aggregate(countPipeline),
+    ]);
+
+    items = paged;
+    const totalMatched = countRows?.[0]?.count || 0;
+    pageCount = Math.ceil(totalMatched / limit);
+  } else {
+    let counted = await KinguinProduct.find(where).sort(sort).clone().countDocuments();
+    pageCount = Math.ceil(counted / limit);
+    items = await KinguinProduct.find(where).sort(sort).skip(skip).limit(limit).lean();
+  }
+
+  const count = await KinguinProduct.countDocuments();
 
   // helpers (inline)
   const truncate2 = (n) => Math.trunc(Number(n) * 100) / 100;
