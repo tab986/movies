@@ -4,10 +4,7 @@ const catchAsyncErrors = require("../utils/catchAsyncErrors");
 const appError = require("../utils/appError");
 const { convertFromIQD } = require("../utils/currency");
 const { Op } = require("sequelize");
-const {
-  buildSearchDescriptor,
-  buildSearchPipelines,
-} = require("../utils/searchRanking");
+const { buildSearchDescriptor } = require("../utils/searchRanking");
 
 // controllers/localProductsController.js (excerpt)
 
@@ -45,6 +42,8 @@ const PRICE_MIN_NUMERIC_SQL = `NULLIF("derived"->>'priceMin', '')::double precis
 const METACRITIC_NUMERIC_SQL = `NULLIF("remote"->>'metacriticScore', '')::double precision`;
 const NOT_HIDDEN_SQL = `"flags"->>'hidden' IS DISTINCT FROM 'true'`;
 const IN_STOCK_SQL = `"derived"->'inStock' = 'true'::jsonb`;
+const SEARCH_NAME_SQL =
+  `LOWER(COALESCE("overrides"->>'name', "remote"->>'name', "remote"->>'originalName', ''))`;
 
 function toJsonbArrayLiteral(values) {
   return `'${JSON.stringify(values).replace(/'/g, "''")}'::jsonb`;
@@ -56,11 +55,10 @@ function toTextArrayLiteral(values) {
 }
 
 function buildListQuery(qs) {
-  const where = {
-    "flags.hidden": { $ne: true },
-    "derived.inStock": true,
-  };
-  const and = [];
+  const and = [
+    Sequelize.literal(NOT_HIDDEN_SQL),
+    Sequelize.literal(IN_STOCK_SQL),
+  ];
   let search = null;
 
   const page = Math.max(1, Number(qs.page) || 1);
@@ -93,7 +91,7 @@ function buildListQuery(qs) {
       if (qs.releaseDateFrom) cond[Op.gte] = ymd(qs.releaseDateFrom);
       if (qs.releaseDateTo) cond[Op.lte] = ymd(qs.releaseDateTo);
     }
-    and.push(Sequelize.where(Sequelize.json(releaseField), cond));
+    and.push(Sequelize.where(Sequelize.literal(`"remote"->>'releaseDate'`), cond));
   }
 
   // Publishers (any-of)
@@ -103,13 +101,17 @@ function buildListQuery(qs) {
       .map((s) => s.trim())
       .filter(Boolean);
     if (list.length === 1) {
-      and.push(Sequelize.where(Sequelize.json("remote.publishers"), {
-        [Op.contains]: [list[0]],
-      }));
+      and.push(
+        Sequelize.literal(
+          `("remote"->'publishers') @> ${toJsonbArrayLiteral([list[0]])}`
+        )
+      );
     } else if (list.length > 1) {
-      and.push(Sequelize.where(Sequelize.json("remote.publishers"), {
-        [Op.overlap]: list,
-      }));
+      and.push(
+        Sequelize.literal(
+          `("remote"->'publishers') ?| ${toTextArrayLiteral(list)}`
+        )
+      );
     }
   }
 
@@ -120,13 +122,17 @@ function buildListQuery(qs) {
       .map((s) => s.trim())
       .filter(Boolean);
     if (list.length === 1) {
-      and.push(Sequelize.where(Sequelize.json("remote.developers"), {
-        [Op.contains]: [list[0]],
-      }));
+      and.push(
+        Sequelize.literal(
+          `("remote"->'developers') @> ${toJsonbArrayLiteral([list[0]])}`
+        )
+      );
     } else if (list.length > 1) {
-      and.push(Sequelize.where(Sequelize.json("remote.developers"), {
-        [Op.overlap]: list,
-      }));
+      and.push(
+        Sequelize.literal(
+          `("remote"->'developers') ?| ${toTextArrayLiteral(list)}`
+        )
+      );
     }
   }
 
@@ -206,6 +212,13 @@ function buildListQuery(qs) {
     const searchText = String(qs.q).trim();
     if (searchText) {
       search = buildSearchDescriptor(searchText);
+      for (const token of search.tokens) {
+        and.push(
+          Sequelize.where(Sequelize.literal(SEARCH_NAME_SQL), {
+            [Op.like]: `%${String(token).toLowerCase()}%`,
+          })
+        );
+      }
     }
   }
 
@@ -232,12 +245,7 @@ function buildListQuery(qs) {
     where.$and = and;
   }
 
-  const dir = String(qs.sortType || "asc").toLowerCase() === "desc" ? -1 : 1;
-  const sort = sortByKey === "name"
-    ? { "overrides.name": dir, "remote.name": dir }
-    : { [sortFieldMap[sortByKey]]: dir };
-
-  return { where, page, limit, sort, search };
+  return { where: { [Op.and]: and }, page, limit, order, search };
 }
 
 const {
@@ -247,35 +255,22 @@ const {
 // const { getShopIdsForPlatform } = require("../utils/platforms"); // if you ever need shops
 
 exports.listProducts = catchAsyncErrors(async (req, res, next) => {
-  const { where, page, limit, sort, search } = buildListQuery(req.query);
+  const { where, page, limit, order } = buildListQuery(req.query);
   const skip = (page - 1) * limit;
   let items;
   let pageCount;
-
-  if (search) {
-    const { dataPipeline, countPipeline } = buildSearchPipelines({
+  const [totalFilteredCount, pagedItems] = await Promise.all([
+    KinguinProduct.count({ where }),
+    KinguinProduct.findAll({
       where,
-      searchDescriptor: search,
-      sort,
-      skip,
+      order,
+      offset: skip,
       limit,
-    });
-
-    const [paged, countRows] = await Promise.all([
-      KinguinProduct.aggregate(dataPipeline),
-      KinguinProduct.aggregate(countPipeline),
-    ]);
-
-    items = paged;
-    const totalMatched = countRows?.[0]?.count || 0;
-    pageCount = Math.ceil(totalMatched / limit);
-  } else {
-    let counted = await KinguinProduct.find(where).sort(sort).clone().countDocuments();
-    pageCount = Math.ceil(counted / limit);
-    items = await KinguinProduct.find(where).sort(sort).skip(skip).limit(limit).lean();
-  }
-
-  const count = await KinguinProduct.countDocuments();
+      raw: true,
+    }),
+  ]);
+  items = pagedItems;
+  pageCount = Math.ceil(totalFilteredCount / limit);
 
   // helpers (inline)
   const truncate2 = (n) => Math.trunc(Number(n) * 100) / 100;

@@ -73,7 +73,6 @@ const KinguinProductSchema = new mongoose.Schema(
     derived: {
       inStock: { type: Boolean, index: true },
       priceMin: { type: Number, index: true },
-      searchRating: { type: Number, default: 0, index: true },
       platformCanonical: { type: String, index: true }, // NEW
     },
 
