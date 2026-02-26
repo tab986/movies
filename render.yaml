@@ -1,0 +1,49 @@
+# render.yaml
+envVarGroups:
+  - name: gamewise-secrets
+    envVars: [] # create the group empty; fill values in the dashboard
+
+services:
+  - type: cron
+    name: gw-sync-run
+    runtime: image
+    image: { url: curlimages/curl:8.10.1 }
+    region: frankfurt
+    plan: starter
+    schedule: "*/2 * * * *"
+    envVars:
+      - fromGroup: gamewise-secrets
+    dockerCommand:
+      - --fail
+      - --show-error
+      - --silent
+      - --retry
+      - "3"
+      - --retry-all-errors
+      - --retry-delay
+      - "5"
+      - --max-time
+      - "100"
+      - https://game-wise-backend.onrender.com/api/v1/sync/run
+
+  - type: cron
+    name: gw-sync-reconcile
+    runtime: image
+    image: { url: curlimages/curl:8.10.1 }
+    region: frankfurt
+    plan: starter
+    schedule: "0 0 * * *"
+    envVars:
+      - fromGroup: gamewise-secrets
+    dockerCommand:
+      - --fail
+      - --show-error
+      - --silent
+      - --retry
+      - "3"
+      - --retry-all-errors
+      - --retry-delay
+      - "5"
+      - --max-time
+      - "300"
+      - https://game-wise-backend.onrender.com/api/v1/sync/reconcile

@@ -4,6 +4,10 @@ const KinguinProduct = require("../models/KinguinProduct"); // local mirror sche
 const catchAsyncErrors = require("../utils/catchAsyncErrors");
 const appError = require("../utils/appError");
 const { convertFromIQD } = require("../utils/currency");
+const {
+  buildSearchDescriptor,
+  buildSearchPipelines,
+} = require("../utils/searchRanking");
 
 // controllers/localProductsController.js (excerpt)
 
@@ -146,15 +150,7 @@ function buildListQuery(qs) {
   if (qs.q) {
     const searchText = String(qs.q).trim();
     if (searchText) {
-      const normalized = normStr(searchText);
-      const noSpace = normalized.replace(/\s+/g, "");
-      const escapedContains = normalized.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const escapedInitials = noSpace.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-      search = {
-        containsRegex: escapedContains,
-        initialsRegex: `^${escapedInitials}`,
-      };
+      search = buildSearchDescriptor(searchText);
     }
   }
 
@@ -205,93 +201,17 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
   let pageCount;
 
   if (search) {
-    const nameExpr = {
-      $toLower: {
-        $ifNull: ["$overrides.name", { $ifNull: ["$remote.name", "$remote.originalName"] }],
-      },
-    };
-
-    const initialsExpr = {
-      $reduce: {
-        input: {
-          $filter: {
-            input: {
-              $split: [nameExpr, " "],
-            },
-            as: "token",
-            cond: { $ne: ["$$token", ""] },
-          },
-        },
-        initialValue: "",
-        in: { $concat: ["$$value", { $substrCP: ["$$this", 0, 1] }] },
-      },
-    };
-
-    const searchMatch = {
-      $or: [
-        { containsPriority: true },
-        { initialsPriority: true },
-      ],
-    };
+    const { dataPipeline, countPipeline } = buildSearchPipelines({
+      where,
+      searchDescriptor: search,
+      sort,
+      skip,
+      limit,
+    });
 
     const [paged, countRows] = await Promise.all([
-      KinguinProduct.aggregate([
-        { $match: where },
-        {
-          $addFields: {
-            containsPriority: {
-              $regexMatch: {
-                input: nameExpr,
-                regex: search.containsRegex,
-                options: "i",
-              },
-            },
-            initialsPriority: {
-              $regexMatch: {
-                input: initialsExpr,
-                regex: search.initialsRegex,
-                options: "i",
-              },
-            },
-            ratingPriority: { $ifNull: ["$remote.metacriticScore", -1] },
-          },
-        },
-        { $match: searchMatch },
-        {
-          $sort: {
-            containsPriority: -1,
-            initialsPriority: -1,
-            ratingPriority: -1,
-            ...sort,
-            _id: 1,
-          },
-        },
-        { $skip: skip },
-        { $limit: limit },
-      ]),
-      KinguinProduct.aggregate([
-        { $match: where },
-        {
-          $addFields: {
-            containsPriority: {
-              $regexMatch: {
-                input: nameExpr,
-                regex: search.containsRegex,
-                options: "i",
-              },
-            },
-            initialsPriority: {
-              $regexMatch: {
-                input: initialsExpr,
-                regex: search.initialsRegex,
-                options: "i",
-              },
-            },
-          },
-        },
-        { $match: searchMatch },
-        { $count: "count" },
-      ]),
+      KinguinProduct.aggregate(dataPipeline),
+      KinguinProduct.aggregate(countPipeline),
     ]);
 
     items = paged;
