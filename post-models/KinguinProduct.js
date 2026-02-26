@@ -32,6 +32,28 @@ module.exports = (sequelize, DataTypes) => {
           fields: [sequelize.literal(`("remote"->'tags')`)],
         },
         {
+          name: "idx_kinguin_remote_publishers_gin",
+          using: "gin",
+          fields: [sequelize.literal(`("remote"->'publishers')`)],
+        },
+        {
+          name: "idx_kinguin_remote_developers_gin",
+          using: "gin",
+          fields: [sequelize.literal(`("remote"->'developers')`)],
+        },
+        {
+          name: "idx_kinguin_metacritic_num",
+          fields: [
+            sequelize.literal(
+              `(NULLIF("remote"->>'metacriticScore', '')::double precision)`
+            ),
+          ],
+        },
+        {
+          name: "idx_kinguin_platform_canonical",
+          fields: [sequelize.literal(`("derived"->>'platformCanonical')`)],
+        },
+        {
           name: "idx_kinguin_hidden_instock_expr",
           fields: [
             sequelize.literal(`(("flags"->>'hidden') IS DISTINCT FROM 'true')`),

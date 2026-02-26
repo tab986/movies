@@ -35,6 +35,24 @@ async function initDatabaseTables() {
       USING gin (("remote"->'tags'));
     `);
     await sequelize.query(`
+      CREATE INDEX IF NOT EXISTS idx_kinguin_remote_publishers_gin
+      ON kinguin_products
+      USING gin (("remote"->'publishers'));
+    `);
+    await sequelize.query(`
+      CREATE INDEX IF NOT EXISTS idx_kinguin_remote_developers_gin
+      ON kinguin_products
+      USING gin (("remote"->'developers'));
+    `);
+    await sequelize.query(`
+      CREATE INDEX IF NOT EXISTS idx_kinguin_metacritic_num
+      ON kinguin_products ((NULLIF("remote"->>'metacriticScore', '')::double precision));
+    `);
+    await sequelize.query(`
+      CREATE INDEX IF NOT EXISTS idx_kinguin_platform_canonical
+      ON kinguin_products ((("derived"->>'platformCanonical')));
+    `);
+    await sequelize.query(`
       CREATE INDEX IF NOT EXISTS idx_kinguin_hidden_instock_expr
       ON kinguin_products ((("flags"->>'hidden') IS DISTINCT FROM 'true'), ("derived"->'inStock'));
     `);
