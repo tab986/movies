@@ -241,25 +241,8 @@ function buildListQuery(qs) {
     ? qs.sortBy
     : "priceMin";
 
-  const dir = String(qs.sortType || "asc").toLowerCase() === "desc" ? "DESC" : "ASC";
-
-  let order;
-  if (sortByKey === "name") {
-    order = [
-      [Sequelize.literal(`"overrides"->>'name'`), dir],
-      [Sequelize.literal(`"remote"->>'name'`), dir],
-    ];
-  } else if (sortByKey === "priceMin") {
-    order = [[Sequelize.literal(PRICE_MIN_NUMERIC_SQL), dir]];
-  } else if (sortByKey === "metacriticScore") {
-    order = [[Sequelize.literal(METACRITIC_NUMERIC_SQL), dir]];
-  } else {
-    const field = sortFieldMap[sortByKey];
-    order = Array.isArray(field)
-      ? field.map((f) => [Sequelize.literal(`"${f.split(".")[0]}"->>'${f.split(".")[1]}'`), dir])
-      : field.includes(".")
-      ? [[Sequelize.literal(`"${field.split(".")[0]}"->>'${field.split(".")[1]}'`), dir]]
-      : [[field, dir]];
+  if (and.length) {
+    where.$and = and;
   }
 
   return { where: { [Op.and]: and }, page, limit, order, search };
