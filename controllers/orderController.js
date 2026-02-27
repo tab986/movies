@@ -179,6 +179,52 @@ async function submitKinguinOrderForOrder(order) {
   order.status = "kingwin";
   await order.save();
 }
+
+function normalizeWaylValue(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
+}
+
+function getWaylPaymentSignals(payload = {}) {
+  const referenceId =
+    payload.referenceId ||
+    payload.reference ||
+    payload.orderReference ||
+    payload?.data?.referenceId ||
+    payload?.data?.reference ||
+    null;
+
+  const paymentStatusRaw =
+    payload.paymentStatus || payload.status || payload?.data?.paymentStatus || "";
+  const eventRaw = payload.event || payload.eventType || payload?.data?.event || "";
+
+  const paymentStatus = normalizeWaylValue(paymentStatusRaw);
+  const event = normalizeWaylValue(eventRaw);
+  const successValues = new Set(["paid", "success", "succeeded", "completed"]);
+  const successEvents = new Set([
+    "paymentpaid",
+    "paymentcompleted",
+    "paymentcaptured",
+    "linkpaid",
+    "orderpaid",
+  ]);
+
+  const isPaid =
+    successValues.has(paymentStatus) ||
+    successEvents.has(event) ||
+    successEvents.has(event.replace(/\./g, ""));
+
+  return {
+    referenceId,
+    isPaid,
+    paymentStatus,
+    event,
+    paymentStatusRaw,
+    eventRaw,
+  };
+}
 // Create payment link via Wayl
 async function createWaylLink(referenceId, amount, productName, image, req) {
   // base (IQD from your system)
@@ -410,14 +456,51 @@ exports.waylCallback = async (req, res, next) => {
     // }
 
     console.log(req.body);
+    const {
+      referenceId,
+      isPaid,
+      paymentStatus,
+      event,
+      paymentStatusRaw,
+      eventRaw,
+    } = getWaylPaymentSignals(req.body);
 
-    const { referenceId } = req.body;
+    if (!referenceId) {
+      return res.status(400).json({
+        status: "fail",
+        message: "Missing Wayl referenceId in callback payload",
+      });
+    }
+
     const order = await Order.findOne({ where: { waylReference: referenceId } });
     console.log(order);
     if (!order)
       return res
         .status(404)
         .json({ status: "fail", message: "Order not found" });
+
+    if (!isPaid) {
+      if (paymentStatus === "failed") {
+        order.waylPaymentStatus = "failed";
+        await order.save();
+      }
+      console.warn("[waylCallback] Rejected non-paid callback", {
+        referenceId,
+        orderId: order.id,
+        paymentStatus,
+        event,
+        paymentStatusRaw,
+        eventRaw,
+      });
+      return res.status(422).json({
+        status: "fail",
+        message: "Callback does not represent a successful payment",
+      });
+    }
+
+    if (["kingwin", "completed"].includes(order.status) && order.kinguinOrderId) {
+      return res.status(200).json({ status: "success", idempotent: true });
+    }
 
     // Mark order as paid according to Wayl
     order.waylPaymentStatus = "paid";
@@ -429,9 +512,16 @@ exports.waylCallback = async (req, res, next) => {
     let kinguinProducts = [];
     if (Array.isArray(order.products) && order.products.length > 0) {
       for (const item of order.products) {
-        const prod = await KinguinProduct.findById(item.product);
+        const dbProductId = Number(item.product);
+        const prod = Number.isFinite(dbProductId)
+          ? await KinguinProduct.findByPk(dbProductId)
+          : null;
         if (!prod) {
-          console.error(`[waylCallback] Product ${item.product} not found in DB, skipping`);
+          console.error("[waylCallback] Product not found in DB", {
+            referenceId,
+            orderId: order.id,
+            productId: item.product,
+          });
           continue;
         }
 
@@ -446,7 +536,12 @@ exports.waylCallback = async (req, res, next) => {
           : prod.remote?.price;
 
         if (!price) {
-          console.error(`[waylCallback] Product ${item.product} (${prod.remote?.name}) has no valid price, skipping`);
+          console.error("[waylCallback] Product has no valid price", {
+            referenceId,
+            orderId: order.id,
+            productId: item.product,
+            productName: prod.remote?.name,
+          });
           continue;
         }
 
@@ -459,7 +554,13 @@ exports.waylCallback = async (req, res, next) => {
     }
 
     if (kinguinProducts.length === 0) {
-      console.error(`[waylCallback] Order ${order._id} has no valid products for Kinguin`);
+      order.kinguinOrderId = "retry_required";
+      await order.save();
+      console.error("[waylCallback] No valid products for Kinguin", {
+        referenceId,
+        orderId: order.id,
+        rawProducts: order.products,
+      });
       return res.status(400).json({
         status: "fail",
         message: "No valid products could be sent to Kinguin",
@@ -468,16 +569,35 @@ exports.waylCallback = async (req, res, next) => {
 
     const kinguinPayload = {
       products: kinguinProducts,
-      orderExternalId: String(order._id),
+      orderExternalId: String(order.id),
     };
     console.log("[waylCallback] Kinguin payload:", JSON.stringify(kinguinPayload));
 
     // Place order with Kinguin
-    const kinguinOrderResponse = await kinguinPlaceOrderV2(kinguinPayload);
-    order.kinguinOrderId = kinguinOrderResponse.orderId;
-    order.status = "kingwin";
-    await order.save();
-    return res.json({ status: "success" });
+    try {
+      const kinguinOrderResponse = await kinguinPlaceOrderV2(kinguinPayload);
+      order.kinguinOrderId = kinguinOrderResponse.orderId;
+      order.status = "kingwin";
+      await order.save();
+      return res.json({ status: "success" });
+    } catch (err) {
+      order.kinguinOrderId = "retry_required";
+      await order.save();
+      console.error("[waylCallback] Kinguin order placement failed", {
+        referenceId,
+        orderId: order.id,
+        productIds: (order.products || []).map((p) => p.product),
+        kinguinPayload,
+        kinguinStatus: err.response?.status,
+        kinguinResponse: err.response?.data,
+        message: err.message,
+      });
+      return res.status(502).json({
+        status: "error",
+        message:
+          "Payment confirmed but Kinguin order placement failed; marked for retry",
+      });
+    }
   } catch (err) {
     next(err);
   }
