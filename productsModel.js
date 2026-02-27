@@ -46,55 +46,6 @@ const productsSchema = new mongoose.Schema(
 
 productsSchema.index({ price: 1 });
 productsSchema.index({ title: 1 });
-
-// productsSchema.virtual("reviews", {
-//   ref: "Reviews",
-//   foreignField: "product",
-//   localField: "_id",
-// });
-
-// async function attachReviewStats(docs) {
-//   if (!Array.isArray(docs)) docs = [docs];
-
-//   await Promise.all(
-//     docs.map(async (doc) => {
-//       if (doc && doc._id) {
-//         const result = await Reviews.aggregate([
-//           { $match: { product: doc._id } },
-//           {
-//             $group: {
-//               _id: null,
-//               avgRating: { $avg: "$rating" },
-//               count: { $sum: 1 },
-//             },
-//           },
-//         ]);
-
-//         const rateAvg = result[0]?.avgRating || 0;
-//         const rateCount = result[0]?.count || 0;
-
-//         doc.set("rateAvg", rateAvg, { strict: false });
-//         doc.set("rateCount", rateCount, { strict: false });
-//       }
-//     })
-//   );
-// }
-
-// productsSchema.post("find", async function (docs) {
-//   await attachReviewStats(docs);
-// });
-
-// productsSchema.post("findOne", async function (doc) {
-//   await attachReviewStats(doc);
-// });
-// productsSchema.pre(/^find/, async function(next) {
-//     this.populate({
-//         path: 'user',
-//         select: 'displayName _id profilePicture'
-//       })
-//     next()
-// })
-
 const Products = mongoose.model("Products", productsSchema);
 
 module.exports = Products;

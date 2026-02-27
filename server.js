@@ -124,10 +124,6 @@ startServer().catch((err) => {
   shutdown(1, "fatal startup error");
 });
 
-// {
-//   useCreateIndex: true,
-//   autoIndex: true
-// }
 
 process.on("SIGTERM", () => {
   console.log("[signal] SIGTERM received");
