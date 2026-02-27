@@ -4,7 +4,11 @@ const catchAsyncErrors = require("../utils/catchAsyncErrors");
 const appError = require("../utils/appError");
 const { convertFromIQD } = require("../utils/currency");
 const { Op } = require("sequelize");
-const { buildSearchDescriptor } = require("../utils/searchRanking");
+const {
+  buildSearchDescriptor,
+  buildSearchFilterSql,
+  buildSearchRankSql,
+} = require("../utils/searchRanking");
 
 // controllers/localProductsController.js (excerpt)
 
@@ -211,13 +215,7 @@ function buildListQuery(qs) {
     const searchText = String(qs.q).trim();
     if (searchText) {
       search = buildSearchDescriptor(searchText);
-      for (const token of search.tokens) {
-        and.push(
-          Sequelize.where(Sequelize.literal(SEARCH_NAME_SQL), {
-            [Op.like]: `%${String(token).toLowerCase()}%`,
-          })
-        );
-      }
+      and.push(Sequelize.literal(buildSearchFilterSql(search, SEARCH_NAME_SQL)));
     }
   }
 
@@ -245,6 +243,15 @@ function buildListQuery(qs) {
       ? [["updatedAt", sortDir]]
       : [[sortableExprMap[sortByKey], sortDir]];
   const order = [...primaryOrder, ["id", "ASC"]];
+  if (search) {
+    const { containsExpr, initialsExpr, popularityExpr } = buildSearchRankSql(
+      search,
+      SEARCH_NAME_SQL
+    );
+    order.unshift([Sequelize.literal(popularityExpr), "DESC"]);
+    order.unshift([Sequelize.literal(initialsExpr), "DESC"]);
+    order.unshift([Sequelize.literal(containsExpr), "DESC"]);
+  }
 
   return { where: { [Op.and]: and }, page, limit, order, search };
 }

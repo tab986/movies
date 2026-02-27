@@ -2,6 +2,10 @@ function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function escapeSqlLiteral(value) {
+  return String(value).replace(/'/g, "''");
+}
+
 function normalizeText(value) {
   return String(value || "")
     .toLowerCase()
@@ -49,190 +53,102 @@ function buildSearchDescriptor(rawQuery) {
     queryVariants
       .flatMap((v) => v.split(" "))
       .map((t) => t.trim())
-      .filter((t) => t.length >= 1)
+      .filter(Boolean)
   );
   const initialsVariants = unique(queryVariants.map(initialsFromText));
 
-  return { queryVariants, tokens, initialsVariants };
+  return { normalized, queryVariants, tokens, initialsVariants };
 }
 
-function maxCondition(matchExpressions) {
-  if (!matchExpressions.length) return 0;
-  if (matchExpressions.length === 1) return matchExpressions[0];
-  return { $max: matchExpressions };
+function buildSearchNameSql() {
+  return `LOWER(COALESCE("overrides"->>'name', "remote"->>'name', "remote"->>'originalName', ''))`;
 }
 
-function buildSearchBaseFields() {
-  const searchNameExpr = {
-    $toLower: {
-      $ifNull: [
-        "$overrides.name",
-        {
-          $ifNull: ["$remote.name", "$remote.originalName"],
-        },
-      ],
-    },
-  };
+function buildInitialsSql(searchNameSql) {
+  return `(
+    SELECT STRING_AGG(LEFT(word, 1), '' ORDER BY ord)
+    FROM UNNEST(REGEXP_SPLIT_TO_ARRAY(${searchNameSql}, '\\s+')) WITH ORDINALITY AS t(word, ord)
+    WHERE word <> ''
+  )`;
+}
+
+function buildContainsExpr(searchDescriptor, searchNameSql) {
+  const checks = [];
+  for (const variant of searchDescriptor.queryVariants) {
+    checks.push(`CASE WHEN ${searchNameSql} LIKE '%${escapeSqlLiteral(variant)}%' THEN 1 ELSE 0 END`);
+  }
+  for (const token of searchDescriptor.tokens) {
+    checks.push(`CASE WHEN ${searchNameSql} LIKE '%${escapeSqlLiteral(token)}%' THEN 1 ELSE 0 END`);
+  }
+  if (!checks.length) return "0";
+  return `GREATEST(${checks.join(", ")})`;
+}
+
+function buildTokenCoverageExpr(searchDescriptor, searchNameSql) {
+  if (!searchDescriptor.tokens.length) return "0";
+  const checks = searchDescriptor.tokens.map(
+    (token) => `CASE WHEN ${searchNameSql} LIKE '%${escapeSqlLiteral(token)}%' THEN 1 ELSE 0 END`
+  );
+  return `((${checks.join(" + ")})::double precision / ${searchDescriptor.tokens.length})`;
+}
+
+function buildInitialsExpr(searchDescriptor, initialsSql) {
+  if (!searchDescriptor.initialsVariants.length) return "0";
+  const checks = searchDescriptor.initialsVariants.map(
+    (initials) => `CASE WHEN ${initialsSql} LIKE '${escapeSqlLiteral(initials)}%' THEN 1 ELSE 0 END`
+  );
+  return `GREATEST(${checks.join(", ")})`;
+}
+
+function buildPopularityExpr() {
+  const metacriticNorm = `LEAST(100, GREATEST(0, COALESCE(NULLIF("remote"->>'metacriticScore', '')::double precision, 0))) / 100.0`;
+  const qtyNorm = `LEAST(100, GREATEST(0, COALESCE(NULLIF("remote"->>'qty', '')::double precision, 0))) / 100.0`;
+  const offersNorm = `LEAST(20, COALESCE(JSONB_ARRAY_LENGTH(COALESCE("remote"->'offers', '[]'::jsonb)), 0)) / 20.0`;
+  const discountNorm = `LEAST(100, GREATEST(0, COALESCE(NULLIF("officialStore"->>'cut', '')::double precision, 0))) / 100.0`;
+  const releaseRecencyNorm = `GREATEST(
+    0,
+    1 - LEAST(
+      3650,
+      COALESCE(
+        EXTRACT(EPOCH FROM (NOW() - TO_DATE(NULLIF("remote"->>'releaseDate', ''), 'YYYY-MM-DD'))) / 86400,
+        3650
+      )
+    ) / 3650.0
+  )`;
+
+  return `(
+    (${metacriticNorm}) * 0.45 +
+    (${qtyNorm}) * 0.20 +
+    (${offersNorm}) * 0.15 +
+    (${discountNorm}) * 0.10 +
+    (${releaseRecencyNorm}) * 0.10
+  )`;
+}
+
+function buildSearchFilterSql(searchDescriptor, searchNameSql) {
+  const containsExpr = buildContainsExpr(searchDescriptor, searchNameSql);
+  const initialsExpr = buildInitialsExpr(searchDescriptor, buildInitialsSql(searchNameSql));
+  return `((${containsExpr}) = 1 OR (${initialsExpr}) = 1)`;
+}
+
+function buildSearchRankSql(searchDescriptor, searchNameSql) {
+  const initialsSql = buildInitialsSql(searchNameSql);
+  const containsExpr = buildContainsExpr(searchDescriptor, searchNameSql);
+  const tokenCoverageExpr = buildTokenCoverageExpr(searchDescriptor, searchNameSql);
+  const initialsExpr = buildInitialsExpr(searchDescriptor, initialsSql);
+  const popularityExpr = buildPopularityExpr();
 
   return {
-    _searchName: searchNameExpr,
-    _searchInitials: {
-      $reduce: {
-        input: {
-          $filter: {
-            input: { $split: [searchNameExpr, " "] },
-            as: "token",
-            cond: { $ne: ["$$token", ""] },
-          },
-        },
-        initialValue: "",
-        in: { $concat: ["$$value", { $substrCP: ["$$this", 0, 1] }] },
-      },
-    },
-    metacriticNorm: {
-      $divide: [{ $min: [{ $max: [{ $ifNull: ["$remote.metacriticScore", 0] }, 0] }, 100] }, 100],
-    },
-    qtyNorm: {
-      $divide: [{ $min: [{ $max: [{ $ifNull: ["$remote.qty", 0] }, 0] }, 100] }, 100],
-    },
-    offersNorm: {
-      $divide: [{ $min: [{ $size: { $ifNull: ["$remote.offers", []] } }, 20] }, 20],
-    },
-    discountNorm: {
-      $divide: [{ $min: [{ $max: [{ $ifNull: ["$officialStore.cut", 0] }, 0] }, 100] }, 100],
-    },
-    releaseDateParsed: {
-      $dateFromString: {
-        dateString: "$remote.releaseDate",
-        onError: null,
-        onNull: null,
-      },
-    },
+    containsExpr,
+    initialsExpr,
+    relevanceExpr: `((${containsExpr}) * 10 + (${tokenCoverageExpr}) * 3 + (${initialsExpr}) * 2)`,
+    popularityExpr,
   };
 }
 
-function buildRelevanceFields(searchDescriptor) {
-  const phraseMatchers = searchDescriptor.queryVariants.map((variant) => ({
-    $cond: [
-      { $regexMatch: { input: "$_searchName", regex: escapeRegex(variant), options: "i" } },
-      1,
-      0,
-    ],
-  }));
-  const tokenMatchers = searchDescriptor.tokens.map((token) => ({
-    $cond: [
-      { $regexMatch: { input: "$_searchName", regex: escapeRegex(token), options: "i" } },
-      1,
-      0,
-    ],
-  }));
-  const initialsMatchers = searchDescriptor.initialsVariants.map((initials) => ({
-    $cond: [
-      { $regexMatch: { input: "$_searchInitials", regex: `^${escapeRegex(initials)}`, options: "i" } },
-      1,
-      0,
-    ],
-  }));
-
-  const tokenMatchCountExpr = tokenMatchers.length ? { $add: tokenMatchers } : 0;
-  const tokenCoverageExpr = searchDescriptor.tokens.length
-    ? { $divide: [tokenMatchCountExpr, searchDescriptor.tokens.length] }
-    : 0;
-  const orderedTokenRegex = searchDescriptor.tokens.length
-    ? searchDescriptor.tokens.map((token) => escapeRegex(token)).join(".*")
-    : null;
-
-  return {
-    exactPhraseMatch: maxCondition(phraseMatchers),
-    tokenMatchCount: tokenMatchCountExpr,
-    tokenCoverage: tokenCoverageExpr,
-    initialsMatch: maxCondition(initialsMatchers),
-    orderBonus: orderedTokenRegex
-      ? {
-          $cond: [{ $regexMatch: { input: "$_searchName", regex: orderedTokenRegex, options: "i" } }, 1, 0],
-        }
-      : 0,
-    relevanceScore: {
-      $add: [
-        { $multiply: [{ $ifNull: [maxCondition(phraseMatchers), 0] }, 4] },
-        { $multiply: [{ $ifNull: [tokenCoverageExpr, 0] }, 2.5] },
-        { $multiply: [{ $ifNull: [maxCondition(initialsMatchers), 0] }, 2] },
-        { $multiply: [{ $ifNull: [orderedTokenRegex ? { $cond: [{ $regexMatch: { input: "$_searchName", regex: orderedTokenRegex, options: "i" } }, 1, 0] } : 0, 0] }, 0.5] },
-      ],
-    },
-  };
-}
-
-function buildPopularityFields() {
-  const releaseRecencyNormExpr = {
-    $max: [
-      0,
-      {
-        $subtract: [
-          1,
-          {
-            $divide: [
-              {
-                $min: [
-                  3650,
-                  {
-                    $max: [
-                      0,
-                      {
-                        $cond: [
-                          { $ifNull: ["$releaseDateParsed", false] },
-                          { $divide: [{ $subtract: ["$$NOW", "$releaseDateParsed"] }, 86400000] },
-                          3650,
-                        ],
-                      },
-                    ],
-                  },
-                ],
-              },
-              3650,
-            ],
-          },
-        ],
-      },
-    ],
-  };
-
-  return {
-    releaseRecencyNorm: releaseRecencyNormExpr,
-    popularityScore: {
-      $add: [
-        { $multiply: [{ $ifNull: ["$metacriticNorm", 0] }, 0.45] },
-        { $multiply: [{ $ifNull: ["$qtyNorm", 0] }, 0.2] },
-        { $multiply: [{ $ifNull: ["$offersNorm", 0] }, 0.15] },
-        { $multiply: [{ $ifNull: ["$discountNorm", 0] }, 0.1] },
-        { $multiply: [releaseRecencyNormExpr, 0.1] },
-      ],
-    },
-  };
-}
-
-function buildSearchPipelines({ where, searchDescriptor, sort, skip, limit }) {
-  if (!searchDescriptor) return null;
-
-  const base = [
-    { $match: where },
-    { $addFields: buildSearchBaseFields() },
-    { $addFields: buildRelevanceFields(searchDescriptor) },
-    { $addFields: buildPopularityFields() },
-    { $match: { relevanceScore: { $gt: 0 } } },
-  ];
-
-  const sortStage = {
-    relevanceScore: -1,
-    popularityScore: -1,
-    ...sort,
-    _id: 1,
-  };
-
-  return {
-    dataPipeline: [...base, { $sort: sortStage }, { $skip: skip }, { $limit: limit }],
-    countPipeline: [...base, { $count: "count" }],
-  };
-}
-
-module.exports = { buildSearchDescriptor, buildSearchPipelines };
+module.exports = {
+  buildSearchDescriptor,
+  buildSearchNameSql,
+  buildSearchFilterSql,
+  buildSearchRankSql,
+};
