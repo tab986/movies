@@ -1,6 +1,7 @@
 {
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "validate:kinguin-startup": "node validateKinguinStartup.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.888.0",

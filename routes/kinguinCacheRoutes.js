@@ -2,6 +2,7 @@
 const router = require("express").Router();
 const { KinguinProduct, Sequelize } = require("../post-models");
 const { Op } = require("sequelize");
+const requireDbReady = require("../utils/requireDbReady");
 const {
   buildSearchDescriptor,
   buildSearchFilterSql,
@@ -129,6 +130,8 @@ function buildCatalogOrder(sortBy, sortType, searchDescriptor) {
   }
   return [...base, [Sequelize.literal(PRICE_MIN_NUMERIC_SQL), dir]];
 }
+
+router.use(requireDbReady({ dependency: "catalog cache" }));
 
 // GET /api/v1/catalog?query params
 // Supports pagination, text search, region, tags, price range, and sorting.

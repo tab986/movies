@@ -31,6 +31,27 @@ function logPhase(phase, message, extra = "") {
   console.log(`[startup:${phase}] ${message}${suffix}`);
 }
 
+async function ensureKinguinRelationExists() {
+  startupState.phase = "db_verify_schema";
+  logPhase(
+    "db_verify_schema",
+    'Verifying required relation "public.kinguin_products"...'
+  );
+
+  const [rows] = await sequelize.query(
+    "SELECT to_regclass('public.kinguin_products') AS relation_name;"
+  );
+  const relationName = rows?.[0]?.relation_name || null;
+
+  if (!relationName) {
+    throw new Error(
+      'Missing required relation "public.kinguin_products". Set DB_INIT_ON_STARTUP=true for one deployment (or apply migrations) before serving catalog traffic.'
+    );
+  }
+
+  logPhase("db_verify_schema", `Verified relation exists (${relationName})`);
+}
+
 function shutdown(exitCode, reason) {
   if (isShuttingDown) return;
   isShuttingDown = true;
@@ -65,14 +86,28 @@ async function runBackgroundStartup() {
     logPhase("db_connected", "Postgres connected");
 
     startupState.phase = "db_init";
-    startupState.dbInitEnabled = isTruthy(process.env.DB_INIT_ON_STARTUP);
+    const rawInitFlag = process.env.DB_INIT_ON_STARTUP;
+    startupState.dbInitEnabled = isTruthy(rawInitFlag);
     logPhase(
       "db_init",
       "Running DB initialization guard",
-      `(DB_INIT_ON_STARTUP=${process.env.DB_INIT_ON_STARTUP || "unset"})`
+      `(DB_INIT_ON_STARTUP=${rawInitFlag || "unset"}, enabled=${startupState.dbInitEnabled})`
     );
+    if (!startupState.dbInitEnabled) {
+      console.warn(
+        "[startup:db_init] DB_INIT_ON_STARTUP is disabled; startup will verify schema and stay degraded if relation is missing"
+      );
+    }
     const didRunInit = await initDatabaseTables();
     startupState.dbInitCompleted = !!didRunInit;
+    logPhase(
+      "db_init",
+      didRunInit
+        ? "Table initialization executed"
+        : "Table initialization skipped by startup flag"
+    );
+
+    await ensureKinguinRelationExists();
 
     startupState.dbReady = true;
     startupState.phase = "ready";
@@ -85,11 +120,17 @@ async function runBackgroundStartup() {
       err?.stack || err?.message || err
     );
 
-    if (isTruthy(process.env.EXIT_ON_STARTUP_DB_FAILURE)) {
+    const rawExitFlag = process.env.EXIT_ON_STARTUP_DB_FAILURE;
+    const shouldExitOnFailure = isTruthy(rawExitFlag);
+    if (shouldExitOnFailure) {
       console.error(
-        "[startup:degraded] EXIT_ON_STARTUP_DB_FAILURE=true, shutting down"
+        `[startup:degraded] EXIT_ON_STARTUP_DB_FAILURE=${rawExitFlag || "unset"} resolved to true, shutting down`
       );
       shutdown(1, "startup DB failure");
+    } else {
+      console.warn(
+        `[startup:degraded] EXIT_ON_STARTUP_DB_FAILURE=${rawExitFlag || "unset"} resolved to false; service continues in degraded mode`
+      );
     }
   }
 }
