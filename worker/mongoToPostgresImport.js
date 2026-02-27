@@ -3,15 +3,6 @@ require("dotenv").config({ path: process.env.DOTENV_PATH || "./config.env" });
 const mongoose = require("mongoose");
 const { Op, UniqueConstraintError } = require("sequelize");
 
-const MongoKinguinProduct = require("../models/KinguinProduct");
-const MongoOrder = require("../models/Orders");
-const MongoUsers = require("../models/userModel");
-const MongoCoupon = require("../models/Coupon");
-const {
-  SyncState: MongoSyncState,
-  SyncProfile: MongoSyncProfile,
-} = require("../models/SyncState");
-
 const {
   KinguinProduct,
   Order,
@@ -23,6 +14,37 @@ const {
 } = require("../post-models");
 
 const DEFAULT_BATCH_SIZE = 1000;
+let legacyMongoModelsCache = null;
+
+function loadLegacyMongoModels() {
+  if (legacyMongoModelsCache) return legacyMongoModelsCache;
+
+  try {
+    const MongoKinguinProduct = require("../models/KinguinProduct");
+    const MongoOrder = require("../models/Orders");
+    const MongoUsers = require("../models/userModel");
+    const MongoCoupon = require("../models/Coupon");
+    const {
+      SyncState: MongoSyncState,
+      SyncProfile: MongoSyncProfile,
+    } = require("../models/SyncState");
+
+    legacyMongoModelsCache = {
+      MongoKinguinProduct,
+      MongoOrder,
+      MongoUsers,
+      MongoCoupon,
+      MongoSyncState,
+      MongoSyncProfile,
+    };
+    return legacyMongoModelsCache;
+  } catch (error) {
+    const details = error && error.message ? ` (${error.message})` : "";
+    throw new Error(
+      `Legacy Mongo import models are unavailable. Restore ../models/* or disable Mongo import with MONGO_IMPORT_ENABLED=false${details}`,
+    );
+  }
+}
 
 function safeBatchSize(value) {
   const parsed = Number(value);
@@ -248,7 +270,7 @@ function mapSyncProfile(doc) {
   };
 }
 
-async function prepareOrderBatch(batchDocs) {
+async function prepareOrderBatch(batchDocs, mongoUsersModel) {
   const objectIds = new Set();
   for (const order of batchDocs) {
     if (order.user) objectIds.add(normalizeKey(order.user));
@@ -257,7 +279,7 @@ async function prepareOrderBatch(batchDocs) {
 
   if (!objectIds.size) return { mongoIdToPgUserId: new Map() };
 
-  const mongoUsers = await MongoUsers.find(
+  const mongoUsers = await mongoUsersModel.find(
     { _id: { $in: Array.from(objectIds) } },
     { _id: 1, phone: 1 },
   ).lean();
@@ -344,6 +366,8 @@ async function runMongoToPostgresImport({
     throw new Error("MONGODB_URI is missing");
   }
 
+  const mongoModels = loadLegacyMongoModels();
+
   logger.log(
     `[mongo-import] starting source=mongo-test target=postgres batchSize=${batchSize}`,
   );
@@ -355,7 +379,7 @@ async function runMongoToPostgresImport({
   try {
     summary.KinguinProduct = await importCollection({
       label: "KinguinProduct",
-      mongoModel: MongoKinguinProduct,
+      mongoModel: mongoModels.MongoKinguinProduct,
       pgModel: KinguinProduct,
       keyField: "id",
       mapDoc: mapKinguinProduct,
@@ -365,7 +389,7 @@ async function runMongoToPostgresImport({
 
     summary.Users = await importCollection({
       label: "Users",
-      mongoModel: MongoUsers,
+      mongoModel: mongoModels.MongoUsers,
       pgModel: Users,
       keyField: "phone",
       mapDoc: mapUser,
@@ -377,7 +401,7 @@ async function runMongoToPostgresImport({
 
     summary.Coupon = await importCollection({
       label: "Coupon",
-      mongoModel: MongoCoupon,
+      mongoModel: mongoModels.MongoCoupon,
       pgModel: Coupon,
       keyField: "code",
       mapDoc: mapCoupon,
@@ -387,7 +411,7 @@ async function runMongoToPostgresImport({
 
     summary.SyncState = await importCollection({
       label: "SyncState",
-      mongoModel: MongoSyncState,
+      mongoModel: mongoModels.MongoSyncState,
       pgModel: SyncState,
       keyField: "key",
       mapDoc: mapSyncState,
@@ -397,7 +421,7 @@ async function runMongoToPostgresImport({
 
     summary.SyncProfile = await importCollection({
       label: "SyncProfile",
-      mongoModel: MongoSyncProfile,
+      mongoModel: mongoModels.MongoSyncProfile,
       pgModel: SyncProfile,
       keyField: "name",
       mapDoc: mapSyncProfile,
@@ -407,11 +431,11 @@ async function runMongoToPostgresImport({
 
     summary.Order = await importCollection({
       label: "Order",
-      mongoModel: MongoOrder,
+      mongoModel: mongoModels.MongoOrder,
       pgModel: Order,
       keyField: "waylReference",
       mapDoc: mapOrder,
-      prepareBatch: prepareOrderBatch,
+      prepareBatch: (batchDocs) => prepareOrderBatch(batchDocs, mongoModels.MongoUsers),
       batchSize,
       logger,
     });

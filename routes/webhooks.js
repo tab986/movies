@@ -5,7 +5,9 @@
 const router = require("express").Router();
 const axios = require("axios");
 const { runOnce } = require("../worker/deltaSync");
-const Order = require("../models/Orders");
+
+let legacyOrderModelCache = null;
+let legacyOrderModelLoadAttempted = false;
 
 const SECRET = process.env.WEBHOOK_SECRET || "";
 
@@ -16,6 +18,22 @@ const ESA_HEADERS = {
   "Content-Type": "application/json",
   "X-Api-Key": KINGUIN_API_KEY || "",
 };
+
+function getLegacyOrderModel(logger = console) {
+  if (legacyOrderModelCache) return legacyOrderModelCache;
+  if (legacyOrderModelLoadAttempted) return null;
+
+  legacyOrderModelLoadAttempted = true;
+  try {
+    legacyOrderModelCache = require("../models/Orders");
+    return legacyOrderModelCache;
+  } catch (error) {
+    logger.error(
+      `[webhooks] Legacy order model unavailable; webhook handlers will return 200 without processing. ${error.message}`,
+    );
+    return null;
+  }
+}
 
 // Validate incoming webhook using X-Kinguin-Secret header or ?secret parameter
 function verifySecret(req) {
@@ -43,6 +61,11 @@ router.post("/kinguin/order-complete", async (req, res) => {
   if (!verifySecret(req)) return res.sendStatus(401);
 
   try {
+    const Order = getLegacyOrderModel();
+    if (!Order) {
+      return res.sendStatus(200);
+    }
+
     // Kinguin sends the order ID in the webhook body
     const kinguinOrderId =
       req.body?.orderId || req.body?.orderExternalId || req.body?.dispatchId;
@@ -125,6 +148,11 @@ router.post("/kinguin/order-status", async (req, res) => {
   if (!verifySecret(req)) return res.sendStatus(401);
 
   try {
+    const Order = getLegacyOrderModel();
+    if (!Order) {
+      return res.sendStatus(200);
+    }
+
     const kinguinOrderId =
       req.body?.orderId || req.body?.orderExternalId;
     const newStatus = req.body?.status;
