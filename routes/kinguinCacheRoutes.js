@@ -2,7 +2,11 @@
 const router = require("express").Router();
 const { KinguinProduct, Sequelize } = require("../post-models");
 const { Op } = require("sequelize");
-const { buildSearchDescriptor } = require("../utils/searchRanking");
+const {
+  buildSearchDescriptor,
+  buildSearchFilterSql,
+  buildSearchRankSql,
+} = require("../utils/searchRanking");
 
 const PRICE_MIN_NUMERIC_SQL = `NULLIF("derived"->>'priceMin', '')::double precision`;
 const NOT_HIDDEN_SQL = `"flags"->>'hidden' IS DISTINCT FROM 'true'`;
@@ -28,15 +32,9 @@ function parseCsv(value) {
 
 function addSearchPredicate(and, query) {
   const searchDescriptor = buildSearchDescriptor(query);
-  if (!searchDescriptor || !searchDescriptor.tokens.length) return;
-
-  for (const token of searchDescriptor.tokens) {
-    and.push(
-      Sequelize.where(Sequelize.literal(SEARCH_NAME_SQL), {
-        [Op.like]: `%${String(token).toLowerCase()}%`,
-      })
-    );
-  }
+  if (!searchDescriptor) return null;
+  and.push(Sequelize.literal(buildSearchFilterSql(searchDescriptor, SEARCH_NAME_SQL)));
+  return searchDescriptor;
 }
 
 function buildCatalogWhere(qs) {
@@ -85,28 +83,41 @@ function buildCatalogWhere(qs) {
     and.push(Sequelize.where(Sequelize.literal(PRICE_MIN_NUMERIC_SQL), range));
   }
 
-  addSearchPredicate(and, qs.q);
-  return { [Op.and]: and };
+  const searchDescriptor = addSearchPredicate(and, qs.q);
+  return { where: { [Op.and]: and }, searchDescriptor };
 }
 
-function buildCatalogOrder(sortBy, sortType) {
+function buildCatalogOrder(sortBy, sortType, searchDescriptor) {
   const dir = String(sortType || "asc").toLowerCase() === "desc" ? "DESC" : "ASC";
   const sortKey = String(sortBy || "priceMin");
 
+  const base = [];
+  if (searchDescriptor) {
+    const { containsExpr, initialsExpr, popularityExpr } = buildSearchRankSql(
+      searchDescriptor,
+      SEARCH_NAME_SQL
+    );
+    base.push([Sequelize.literal(containsExpr), "DESC"]);
+    base.push([Sequelize.literal(initialsExpr), "DESC"]);
+    base.push([Sequelize.literal(popularityExpr), "DESC"]);
+  }
+
   if (sortKey === "name") {
     return [
+      ...base,
       [Sequelize.literal(`"overrides"->>'name'`), dir],
       [Sequelize.literal(`"remote"->>'name'`), dir],
     ];
   }
   if (sortKey === "priceMin") {
-    return [[Sequelize.literal(PRICE_MIN_NUMERIC_SQL), dir]];
+    return [...base, [Sequelize.literal(PRICE_MIN_NUMERIC_SQL), dir]];
   }
   if (sortKey === "releaseDate") {
-    return [[Sequelize.literal(`"remote"->>'releaseDate'`), dir]];
+    return [...base, [Sequelize.literal(`"remote"->>'releaseDate'`), dir]];
   }
   if (sortKey === "metacriticScore") {
     return [
+      ...base,
       [
         Sequelize.literal(`NULLIF("remote"->>'metacriticScore', '')::double precision`),
         dir,
@@ -114,9 +125,9 @@ function buildCatalogOrder(sortBy, sortType) {
     ];
   }
   if (sortKey === "updatedAt") {
-    return [["updatedAt", dir]];
+    return [...base, ["updatedAt", dir]];
   }
-  return [[Sequelize.literal(PRICE_MIN_NUMERIC_SQL), dir]];
+  return [...base, [Sequelize.literal(PRICE_MIN_NUMERIC_SQL), dir]];
 }
 
 // GET /api/v1/catalog?query params
@@ -138,7 +149,7 @@ router.get('/', async (req, res) => {
   const pageNum = Math.max(1, Number(page) || 1);
   const limitNum = Math.max(1, Math.min(200, Number(limit) || 24));
   const skip = (pageNum - 1) * limitNum;
-  const where = buildCatalogWhere({
+  const { where, searchDescriptor } = buildCatalogWhere({
     q,
     regionId,
     genres,
@@ -146,7 +157,7 @@ router.get('/', async (req, res) => {
     priceFrom,
     priceTo,
   });
-  const order = buildCatalogOrder(sortBy, sortType);
+  const order = buildCatalogOrder(sortBy, sortType, searchDescriptor);
 
   const [items, count] = await Promise.all([
     KinguinProduct.findAll({
