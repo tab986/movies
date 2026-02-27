@@ -41,7 +41,6 @@ app.use(mongoSanitize());
 app.use(xss());
 app.use(hpp());
 
-// app.enable('trust proxy');
 
 // !!!! the cros options depens on the cloud service this api will run on -- it may needs addtion settings
 // Replace with your frontend's URL
