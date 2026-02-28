@@ -81,9 +81,17 @@ function buildSearchDescriptor(rawQuery) {
 
 function buildInitialsSql(searchNameSql) {
   return `(
-    SELECT STRING_AGG(LEFT(word, 1), '' ORDER BY ord)
-    FROM UNNEST(REGEXP_SPLIT_TO_ARRAY(${searchNameSql}, '\\s+')) WITH ORDINALITY AS t(word, ord)
-    WHERE word <> ''
+    regexp_replace(
+      regexp_replace(
+        ${searchNameSql},
+        '[^a-z0-9]+',
+        ' ',
+        'g'
+      ),
+      '(^|\\s+)([a-z0-9])[a-z0-9]*',
+      '\\2',
+      'g'
+    )
   )`;
 }
 
@@ -161,13 +169,27 @@ function buildSearchFilterSql(searchDescriptor, searchNameSql) {
   const allTokensExpr = buildAllTokensExpr(searchDescriptor, searchNameSql);
   const containsExpr = buildContainsExpr(searchDescriptor, searchNameSql);
   const initialsExpr = buildInitialsExpr(searchDescriptor, buildInitialsSql(searchNameSql));
-  const tokenCoverageExpr = buildTokenCoverageExpr(searchDescriptor, searchNameSql);
+  const queryVariants = searchDescriptor.queryVariants || [];
+  const fastPhraseChecks = queryVariants.length
+    ? queryVariants.map(
+        (variant) =>
+          `${searchNameSql} LIKE '%${escapeSqlLiteral(variant)}%'`
+      )
+    : ["FALSE"];
+  const fastInitialsChecks = (searchDescriptor.initialsVariants || []).length
+    ? (searchDescriptor.initialsVariants || []).map(
+        (initials) =>
+          `${buildInitialsSql(searchNameSql)} LIKE '${escapeSqlLiteral(initials)}%'`
+      )
+    : ["FALSE"];
+  const fastFilterExpr = `(${[...fastPhraseChecks, ...fastInitialsChecks].join(" OR ")})`;
   return `(
-    (${containsExpr}) = 1 OR
-    (${initialsExpr}) = 1 OR
-    ((${phraseExpr}) = 1) OR
-    ((${allTokensExpr}) = 1) OR
-    ((${tokenCoverageExpr}) >= 0.75)
+    (${fastFilterExpr}) AND (
+      (${containsExpr}) = 1 OR
+      (${initialsExpr}) = 1 OR
+      ((${phraseExpr}) = 1) OR
+      ((${allTokensExpr}) = 1)
+    )
   )`;
 }
 

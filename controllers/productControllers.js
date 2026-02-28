@@ -263,10 +263,12 @@ const {
 // const { getShopIdsForPlatform } = require("../utils/platforms"); // if you ever need shops
 
 exports.listProducts = catchAsyncErrors(async (req, res, next) => {
+  const requestStartMs = Date.now();
   const { where, page, limit, order, search } = buildListQuery(req.query);
   const skip = (page - 1) * limit;
   let items;
   let pageCount;
+  const dbStartMs = Date.now();
   const [totalFilteredCount, pagedItems] = await Promise.all([
     KinguinProduct.count({ where }),
     KinguinProduct.findAll({
@@ -277,6 +279,7 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
       raw: true,
     }),
   ]);
+  const dbDurationMs = Date.now() - dbStartMs;
   items = pagedItems;
   pageCount = Math.ceil(totalFilteredCount / limit);
 
@@ -312,6 +315,7 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
   // ---------- Batch ITAD refresh for items on this page ----------
   // Search requests should stay fast and never block on external price sync.
   const shouldRefreshOfficialStore = !search;
+  const refreshStartMs = Date.now();
 
   // 1) pick candidates that need refresh (missing or stale officialStore)
   const candidates = shouldRefreshOfficialStore
@@ -421,6 +425,7 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
       }
     }
   }
+  const refreshDurationMs = Date.now() - refreshStartMs;
 
   // ---------- Build response with discount tags ----------
 
@@ -504,6 +509,16 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
     meta: { pageCount, page, limit, item_count: totalFilteredCount },
     results,
   });
+  const totalDurationMs = Date.now() - requestStartMs;
+  if (search) {
+    console.log(
+      `[perf] listProducts search q="${String(req.query.q || "")}" dbMs=${dbDurationMs} refreshMs=${refreshDurationMs} totalMs=${totalDurationMs} totalFiltered=${totalFilteredCount} page=${page} limit=${limit}`
+    );
+  } else {
+    console.log(
+      `[perf] listProducts dbMs=${dbDurationMs} refreshMs=${refreshDurationMs} totalMs=${totalDurationMs} totalFiltered=${totalFilteredCount} page=${page} limit=${limit}`
+    );
+  }
 });
 
 const { getOfficialDealForTitle } = require("../utils/itadClient");
