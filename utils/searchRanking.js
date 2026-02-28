@@ -22,6 +22,7 @@ const ALIAS_MAP = {
   tlou: "the last of us",
   pubg: "playerunknowns battlegrounds",
 };
+const STOPWORDS = new Set(["the", "of", "and", "for", "to"]);
 
 function expandAliases(text) {
   let expanded = text;
@@ -43,6 +44,14 @@ function unique(values) {
   return [...new Set(values.filter(Boolean))];
 }
 
+function isMeaningfulToken(token) {
+  if (!token) return false;
+  if (STOPWORDS.has(token)) return false;
+  if (/^\d+$/.test(token)) return true; // keep years / numbered sequels
+  if (/^[ivxlcdm]+$/i.test(token)) return true; // keep roman numerals like v, vi
+  return token.length >= 2;
+}
+
 function buildSearchDescriptor(rawQuery) {
   const normalized = normalizeText(rawQuery);
   if (!normalized) return null;
@@ -59,24 +68,15 @@ function buildSearchDescriptor(rawQuery) {
     expanded
       .split(" ")
       .map((t) => t.trim())
-      .filter((t) => t.length >= 1)
+      .filter(isMeaningfulToken)
   );
-  const tokens = unique([...expandedTokens, ...rawTokens]);
+  const tokens = unique([
+    ...expandedTokens,
+    ...rawTokens.filter(isMeaningfulToken),
+  ]);
   const initialsVariants = unique(queryVariants.map(initialsFromText));
 
   return { queryVariants, tokens, rawTokens, expandedTokens, initialsVariants };
-}
-
-function buildContainsExpr(searchDescriptor, searchNameSql) {
-  const checks = [];
-  for (const variant of searchDescriptor.queryVariants || []) {
-    checks.push(`CASE WHEN ${searchNameSql} LIKE '%${escapeSqlLiteral(variant)}%' THEN 1 ELSE 0 END`);
-  }
-  for (const token of searchDescriptor.tokens || []) {
-    checks.push(`CASE WHEN ${searchNameSql} LIKE '%${escapeSqlLiteral(token)}%' THEN 1 ELSE 0 END`);
-  }
-  if (!checks.length) return "0";
-  return `GREATEST(${checks.join(", ")})`;
 }
 
 function buildInitialsSql(searchNameSql) {
@@ -130,10 +130,45 @@ function buildPopularityExpr() {
   )`;
 }
 
+function buildPhraseExpr(searchDescriptor, searchNameSql) {
+  const variants = searchDescriptor.queryVariants || [];
+  if (!variants.length) return "0";
+  const checks = variants.map(
+    (variant) => `CASE WHEN ${searchNameSql} LIKE '%${escapeSqlLiteral(variant)}%' THEN 1 ELSE 0 END`
+  );
+  return `GREATEST(${checks.join(", ")})`;
+}
+
+function buildAllTokensExpr(searchDescriptor, searchNameSql) {
+  const tokens = (searchDescriptor.expandedTokens && searchDescriptor.expandedTokens.length
+    ? searchDescriptor.expandedTokens
+    : searchDescriptor.tokens) || [];
+  if (!tokens.length) return "0";
+  const tokenHits = tokens.map(
+    (token) => `CASE WHEN ${searchNameSql} LIKE '%${escapeSqlLiteral(token)}%' THEN 1 ELSE 0 END`
+  );
+  return `CASE WHEN (${tokenHits.join(" + ")}) >= ${tokens.length} THEN 1 ELSE 0 END`;
+}
+
+function buildContainsExpr(searchDescriptor, searchNameSql) {
+  const phraseExpr = buildPhraseExpr(searchDescriptor, searchNameSql);
+  const allTokensExpr = buildAllTokensExpr(searchDescriptor, searchNameSql);
+  return `GREATEST((${phraseExpr}), (${allTokensExpr}))`;
+}
+
 function buildSearchFilterSql(searchDescriptor, searchNameSql) {
+  const phraseExpr = buildPhraseExpr(searchDescriptor, searchNameSql);
+  const allTokensExpr = buildAllTokensExpr(searchDescriptor, searchNameSql);
   const containsExpr = buildContainsExpr(searchDescriptor, searchNameSql);
   const initialsExpr = buildInitialsExpr(searchDescriptor, buildInitialsSql(searchNameSql));
-  return `((${containsExpr}) = 1 OR (${initialsExpr}) = 1)`;
+  const tokenCoverageExpr = buildTokenCoverageExpr(searchDescriptor, searchNameSql);
+  return `(
+    (${containsExpr}) = 1 OR
+    (${initialsExpr}) = 1 OR
+    ((${phraseExpr}) = 1) OR
+    ((${allTokensExpr}) = 1) OR
+    ((${tokenCoverageExpr}) >= 0.75)
+  )`;
 }
 
 function buildSearchRankSql(searchDescriptor, searchNameSql) {
