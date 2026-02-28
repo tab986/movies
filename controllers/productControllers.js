@@ -266,22 +266,48 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
   const requestStartMs = Date.now();
   const { where, page, limit, order, search } = buildListQuery(req.query);
   const skip = (page - 1) * limit;
+  const isSearchRequest = Boolean(search);
+  const countModeRaw = String(req.query.countMode || "").trim().toLowerCase();
+  const forceExactCount =
+    countModeRaw === "exact" ||
+    countModeRaw === "true" ||
+    countModeRaw === "1" ||
+    countModeRaw === "yes";
+  const useExactCount = !isSearchRequest || forceExactCount;
   let items;
   let pageCount;
+  let totalFilteredCount;
+  let hasMore = false;
   const dbStartMs = Date.now();
-  const [totalFilteredCount, pagedItems] = await Promise.all([
-    KinguinProduct.count({ where }),
-    KinguinProduct.findAll({
+  if (useExactCount) {
+    const [countValue, pagedItems] = await Promise.all([
+      KinguinProduct.count({ where }),
+      KinguinProduct.findAll({
+        where,
+        order,
+        offset: skip,
+        limit,
+        raw: true,
+      }),
+    ]);
+    totalFilteredCount = countValue;
+    items = pagedItems;
+    pageCount = Math.ceil(totalFilteredCount / limit);
+    hasMore = page < pageCount;
+  } else {
+    const pagedItemsPlusOne = await KinguinProduct.findAll({
       where,
       order,
       offset: skip,
-      limit,
+      limit: limit + 1,
       raw: true,
-    }),
-  ]);
+    });
+    hasMore = pagedItemsPlusOne.length > limit;
+    items = hasMore ? pagedItemsPlusOne.slice(0, limit) : pagedItemsPlusOne;
+    totalFilteredCount = skip + items.length + (hasMore ? 1 : 0);
+    pageCount = hasMore ? page + 1 : page;
+  }
   const dbDurationMs = Date.now() - dbStartMs;
-  items = pagedItems;
-  pageCount = Math.ceil(totalFilteredCount / limit);
 
   // helpers (inline)
   const truncate2 = (n) => Math.trunc(Number(n) * 100) / 100;
@@ -506,17 +532,24 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
 
   res.status(200).json({
     status: "success",
-    meta: { pageCount, page, limit, item_count: totalFilteredCount },
+    meta: {
+      pageCount,
+      page,
+      limit,
+      item_count: totalFilteredCount,
+      hasMore,
+      exactCount: useExactCount,
+    },
     results,
   });
   const totalDurationMs = Date.now() - requestStartMs;
   if (search) {
     console.log(
-      `[perf] listProducts search q="${String(req.query.q || "")}" dbMs=${dbDurationMs} refreshMs=${refreshDurationMs} totalMs=${totalDurationMs} totalFiltered=${totalFilteredCount} page=${page} limit=${limit}`
+      `[perf] listProducts search q="${String(req.query.q || "")}" countMode=${useExactCount ? "exact" : "fast"} dbMs=${dbDurationMs} refreshMs=${refreshDurationMs} totalMs=${totalDurationMs} totalFiltered=${totalFilteredCount} page=${page} limit=${limit}`
     );
   } else {
     console.log(
-      `[perf] listProducts dbMs=${dbDurationMs} refreshMs=${refreshDurationMs} totalMs=${totalDurationMs} totalFiltered=${totalFilteredCount} page=${page} limit=${limit}`
+      `[perf] listProducts countMode=exact dbMs=${dbDurationMs} refreshMs=${refreshDurationMs} totalMs=${totalDurationMs} totalFiltered=${totalFilteredCount} page=${page} limit=${limit}`
     );
   }
 });
