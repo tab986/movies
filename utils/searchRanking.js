@@ -44,16 +44,23 @@ function buildSearchDescriptor(rawQuery) {
   if (!normalized) return null;
 
   const expanded = expandAliases(normalized);
-  const queryVariants = unique([normalized, expanded]);
-  const tokens = unique(
-    queryVariants
-      .flatMap((v) => v.split(" "))
+  const queryVariants = unique([expanded, normalized]);
+  const rawTokens = unique(
+    normalized
+      .split(" ")
       .map((t) => t.trim())
       .filter((t) => t.length >= 1)
   );
+  const expandedTokens = unique(
+    expanded
+      .split(" ")
+      .map((t) => t.trim())
+      .filter((t) => t.length >= 1)
+  );
+  const tokens = unique([...expandedTokens, ...rawTokens]);
   const initialsVariants = unique(queryVariants.map(initialsFromText));
 
-  return { queryVariants, tokens, initialsVariants };
+  return { queryVariants, tokens, rawTokens, expandedTokens, initialsVariants };
 }
 
 function maxCondition(matchExpressions) {
@@ -112,44 +119,115 @@ function buildSearchBaseFields() {
 }
 
 function buildRelevanceFields(searchDescriptor) {
-  const phraseMatchers = searchDescriptor.queryVariants.map((variant) => ({
+  const phraseMatchers = searchDescriptor.queryVariants.map((variant) => {
+    const phraseRegex = escapeRegex(variant).replace(/\s+/g, "\\s+");
+    return {
+      $cond: [
+        {
+          $regexMatch: {
+            input: "$_searchName",
+            regex: `\\b${phraseRegex}\\b`,
+            options: "i",
+          },
+        },
+        1,
+        0,
+      ],
+    };
+  });
+
+  const coverageTokens =
+    searchDescriptor.expandedTokens?.length > 0
+      ? searchDescriptor.expandedTokens
+      : searchDescriptor.tokens;
+
+  const tokenMatchers = coverageTokens.map((token) => ({
     $cond: [
-      { $regexMatch: { input: "$_searchName", regex: escapeRegex(variant), options: "i" } },
+      {
+        $regexMatch: {
+          input: "$_searchName",
+          regex: `\\b${escapeRegex(token)}\\b`,
+          options: "i",
+        },
+      },
       1,
       0,
     ],
   }));
-  const tokenMatchers = searchDescriptor.tokens.map((token) => ({
+
+  const rawTokenMatchers = searchDescriptor.rawTokens.map((token) => ({
     $cond: [
-      { $regexMatch: { input: "$_searchName", regex: escapeRegex(token), options: "i" } },
+      {
+        $regexMatch: {
+          input: "$_searchName",
+          regex: `\\b${escapeRegex(token)}\\b`,
+          options: "i",
+        },
+      },
       1,
       0,
     ],
   }));
+
   const initialsMatchers = searchDescriptor.initialsVariants.map((initials) => ({
     $cond: [
-      { $regexMatch: { input: "$_searchInitials", regex: `^${escapeRegex(initials)}`, options: "i" } },
+      {
+        $regexMatch: {
+          input: "$_searchInitials",
+          regex: `^${escapeRegex(initials)}`,
+          options: "i",
+        },
+      },
       1,
       0,
     ],
   }));
 
   const tokenMatchCountExpr = tokenMatchers.length ? { $add: tokenMatchers } : 0;
-  const tokenCoverageExpr = searchDescriptor.tokens.length
-    ? { $divide: [tokenMatchCountExpr, searchDescriptor.tokens.length] }
+  const tokenCoverageExpr = coverageTokens.length
+    ? { $divide: [tokenMatchCountExpr, coverageTokens.length] }
     : 0;
-  const orderedTokenRegex = searchDescriptor.tokens.length
-    ? searchDescriptor.tokens.map((token) => escapeRegex(token)).join(".*")
+  const orderedTokenRegex = coverageTokens.length
+    ? coverageTokens.map((token) => `\\b${escapeRegex(token)}\\b`).join(".*")
     : null;
+  const rawTokenHitExpr = rawTokenMatchers.length ? { $add: rawTokenMatchers } : 0;
+  const containsPriorityExpr = {
+    $cond: [
+      {
+        $or: [
+          { $gt: [maxCondition(phraseMatchers), 0] },
+          { $gt: [rawTokenHitExpr, 0] },
+          { $gt: [tokenMatchCountExpr, 0] },
+        ],
+      },
+      1,
+      0,
+    ],
+  };
+  const initialsPriorityExpr = {
+    $cond: [{ $gt: [maxCondition(initialsMatchers), 0] }, 1, 0],
+  };
 
   return {
     exactPhraseMatch: maxCondition(phraseMatchers),
     tokenMatchCount: tokenMatchCountExpr,
     tokenCoverage: tokenCoverageExpr,
     initialsMatch: maxCondition(initialsMatchers),
+    containsPriority: containsPriorityExpr,
+    initialsPriority: initialsPriorityExpr,
     orderBonus: orderedTokenRegex
       ? {
-          $cond: [{ $regexMatch: { input: "$_searchName", regex: orderedTokenRegex, options: "i" } }, 1, 0],
+          $cond: [
+            {
+              $regexMatch: {
+                input: "$_searchName",
+                regex: orderedTokenRegex,
+                options: "i",
+              },
+            },
+            1,
+            0,
+          ],
         }
       : 0,
     relevanceScore: {
@@ -219,12 +297,18 @@ function buildSearchPipelines({ where, searchDescriptor, sort, skip, limit }) {
     { $addFields: buildSearchBaseFields() },
     { $addFields: buildRelevanceFields(searchDescriptor) },
     { $addFields: buildPopularityFields() },
-    { $match: { relevanceScore: { $gt: 0 } } },
+    {
+      $match: {
+        $or: [{ containsPriority: 1 }, { initialsPriority: 1 }],
+      },
+    },
   ];
 
   const sortStage = {
-    relevanceScore: -1,
+    containsPriority: -1,
+    initialsPriority: -1,
     popularityScore: -1,
+    relevanceScore: -1,
     ...sort,
     _id: 1,
   };

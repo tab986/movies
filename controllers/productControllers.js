@@ -255,14 +255,18 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
     "US";
 
   // ---------- Batch ITAD refresh for items on this page ----------
+  // Search requests should stay fast and never block on external price sync.
+  const shouldRefreshOfficialStore = !search;
 
   // 1) pick candidates that need refresh (missing or stale officialStore)
-  const candidates = items.filter((p) => {
+  const candidates = shouldRefreshOfficialStore
+    ? items.filter((p) => {
     const os = p.officialStore;
     if (!os || !os.regularAmount || !os.lastUpdatedAt) return true;
     const age = now - new Date(os.lastUpdatedAt).getTime();
     return age > REFRESH_INTERVAL_MS;
-  });
+      })
+    : [];
 
   const updatedOfficialById = {}; // _id (string) -> officialStore object
 
@@ -374,9 +378,6 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
     // use freshly-fetched officialStore if we just updated it in this request
     let officialForResponse =
       updatedOfficialById[idStr] || p.officialStore || null;
-
-    console.log(`updatedOfficialById ::${{ ...updatedOfficialById }}`);
-    console.log(updatedOfficialById);
 
     // // same logic as getProduct:
     // // if our minimum IQD price is > official IQD price, hide official block

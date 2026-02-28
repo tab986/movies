@@ -89,6 +89,10 @@ const KinguinProductSchema = new mongoose.Schema(
 // Indexes for efficient filtering
 KinguinProductSchema.index({ "derived.inStock": 1, "derived.priceMin": 1 });
 KinguinProductSchema.index(
+  { "flags.hidden": 1, "derived.inStock": 1, "remote.regionId": 1, "derived.priceMin": 1 },
+  { name: "search_visibility_region_price_idx" }
+);
+KinguinProductSchema.index(
   {
     "flags.hidden": 1,
     "derived.inStock": 1,
@@ -97,6 +101,21 @@ KinguinProductSchema.index(
     _id: 1,
   },
   { name: "search_visibility_rating_price_idx" }
+);
+KinguinProductSchema.index(
+  {
+    "overrides.name": "text",
+    "remote.name": "text",
+    "remote.originalName": "text",
+  },
+  {
+    weights: {
+      "overrides.name": 8,
+      "remote.name": 6,
+      "remote.originalName": 4,
+    },
+    name: "search_name_text_idx",
+  }
 );
 
 
