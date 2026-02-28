@@ -1436,3 +1436,26 @@ INTERNAL SCHEDULER (optional):
   Schedule configurable via SYNC_SCHEDULE env var
   Default: every 30 seconds (or every 2 minutes)
 ```
+
+---
+
+## DB Startup Readiness
+
+For Postgres-backed catalog routes (`/api/v1/products`, `/api/v1/catalog`, and catalog-dependent dashboard/order endpoints), startup now enforces schema readiness:
+
+- Set `DB_INIT_ON_STARTUP=true` for at least one deployment when bootstrapping a new environment.
+- Startup logs include resolved values for `DB_INIT_ON_STARTUP` and `EXIT_ON_STARTUP_DB_FAILURE`.
+- Startup verifies `public.kinguin_products` exists; if missing, the service stays degraded (or exits when `EXIT_ON_STARTUP_DB_FAILURE=true`).
+- While degraded, catalog-dependent routes return controlled `503` responses with startup state details.
+
+Post-deploy validation command:
+
+```bash
+npm run validate:kinguin-startup
+```
+
+Optional endpoint checks can be enabled with:
+
+```bash
+POST_DEPLOY_BASE_URL=https://your-deployment-url npm run validate:kinguin-startup
+```

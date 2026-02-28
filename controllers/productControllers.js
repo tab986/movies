@@ -1,12 +1,13 @@
 // controllers/localProductsController.js
-const mongoose = require("mongoose");
-const KinguinProduct = require("../models/KinguinProduct"); // local mirror schema
+const { KinguinProduct, Sequelize } = require("../post-models"); // local mirror schema
 const catchAsyncErrors = require("../utils/catchAsyncErrors");
 const appError = require("../utils/appError");
 const { convertFromIQD } = require("../utils/currency");
+const { Op } = require("sequelize");
 const {
   buildSearchDescriptor,
-  buildSearchPipelines,
+  buildSearchFilterSql,
+  buildSearchRankSql,
 } = require("../utils/searchRanking");
 
 // controllers/localProductsController.js (excerpt)
@@ -41,11 +42,27 @@ function normalizePlatform(p) {
   return n;
 }
 
+const PRICE_MIN_NUMERIC_SQL = `NULLIF("derived"->>'priceMin', '')::double precision`;
+const METACRITIC_NUMERIC_SQL = `NULLIF("remote"->>'metacriticScore', '')::double precision`;
+const NOT_HIDDEN_SQL = `"flags"->>'hidden' IS DISTINCT FROM 'true'`;
+const IN_STOCK_SQL = `"derived"->'inStock' = 'true'::jsonb`;
+const SEARCH_NAME_SQL =
+  `LOWER(COALESCE("overrides"->>'name', "remote"->>'name', "remote"->>'originalName', ''))`;
+
+function toJsonbArrayLiteral(values) {
+  return `'${JSON.stringify(values).replace(/'/g, "''")}'::jsonb`;
+}
+
+function toTextArrayLiteral(values) {
+  const escaped = values.map((v) => `'${String(v).replace(/'/g, "''")}'`);
+  return `ARRAY[${escaped.join(", ")}]::text[]`;
+}
+
 function buildListQuery(qs) {
-  const where = {
-    "flags.hidden": { $ne: true },
-    "derived.inStock": true,
-  };
+  const and = [
+    Sequelize.literal(NOT_HIDDEN_SQL),
+    Sequelize.literal(IN_STOCK_SQL),
+  ];
   let search = null;
 
   const page = Math.max(1, Number(qs.page) || 1);
@@ -54,29 +71,30 @@ function buildListQuery(qs) {
   // Platform (canonical)
   if (qs.platform) {
     const canon = normalizePlatform(qs.platform);
-    if (canon) where["derived.platformCanonical"] = canon;
+    if (canon) {
+      and.push(Sequelize.where(Sequelize.json("derived.platformCanonical"), canon));
+    }
   }
   // const wantCards = String(qs.isCard).toLowerCase() === "true";
   // where["remote.isCard"] = wantCards ? true : { $ne: true };
   // Region
-  if (qs.regionId) where["remote.regionId"] = Number(qs.regionId);
+  if (qs.regionId) {
+    and.push(Sequelize.where(Sequelize.json("remote.regionId"), Number(qs.regionId)));
+  }
 
   // -------- Release date (stored as "YYYY-MM-DD" string) --------
   // If you store as Date in Mongo, swap the assignments to new Date("...T00:00:00Z")
-  const releaseField = "remote.releaseDate";
   const ymd = (v) => String(v).slice(0, 10); // if you're storing as "YYYY-MM-DD" strings
 
   if (qs.releaseDateFrom || qs.releaseDateTo || qs.releaseDate) {
-    const cond = { $exists: true, $ne: null }; // exclude missing & null
-
+    const cond = {};
     if (qs.releaseDate) {
-      cond.$eq = ymd(qs.releaseDate); // exact day
+      cond[Op.eq] = ymd(qs.releaseDate); // exact day
     } else {
-      if (qs.releaseDateFrom) cond.$gte = ymd(qs.releaseDateFrom);
-      if (qs.releaseDateTo) cond.$lte = ymd(qs.releaseDateTo);
+      if (qs.releaseDateFrom) cond[Op.gte] = ymd(qs.releaseDateFrom);
+      if (qs.releaseDateTo) cond[Op.lte] = ymd(qs.releaseDateTo);
     }
-
-    where[releaseField] = cond;
+    and.push(Sequelize.where(Sequelize.literal(`"remote"->>'releaseDate'`), cond));
   }
 
   // Publishers (any-of)
@@ -86,9 +104,17 @@ function buildListQuery(qs) {
       .map((s) => s.trim())
       .filter(Boolean);
     if (list.length === 1) {
-      where["remote.publishers"] = list[0];
+      and.push(
+        Sequelize.literal(
+          `("remote"->'publishers') @> ${toJsonbArrayLiteral([list[0]])}`
+        )
+      );
     } else if (list.length > 1) {
-      where["remote.publishers"] = { $in: list };
+      and.push(
+        Sequelize.literal(
+          `("remote"->'publishers') ?| ${toTextArrayLiteral(list)}`
+        )
+      );
     }
   }
 
@@ -99,9 +125,17 @@ function buildListQuery(qs) {
       .map((s) => s.trim())
       .filter(Boolean);
     if (list.length === 1) {
-      where["remote.developers"] = list[0];
+      and.push(
+        Sequelize.literal(
+          `("remote"->'developers') @> ${toJsonbArrayLiteral([list[0]])}`
+        )
+      );
     } else if (list.length > 1) {
-      where["remote.developers"] = { $in: list };
+      and.push(
+        Sequelize.literal(
+          `("remote"->'developers') ?| ${toTextArrayLiteral(list)}`
+        )
+      );
     }
   }
 
@@ -111,8 +145,19 @@ function buildListQuery(qs) {
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
-    if (list.length === 1) where["remote.genres"] = list[0];
-    else if (list.length > 1) where["remote.genres"] = { $in: list };
+    if (list.length === 1) {
+      and.push(
+        Sequelize.literal(
+          `("remote"->'genres') @> ${toJsonbArrayLiteral([list[0]])}`
+        )
+      );
+    } else if (list.length > 1) {
+      and.push(
+        Sequelize.literal(
+          `("remote"->'genres') ?| ${toTextArrayLiteral(list)}`
+        )
+      );
+    }
   }
 
   // Tags (must include all)
@@ -121,29 +166,48 @@ function buildListQuery(qs) {
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
-    if (list.length) where["remote.tags"] = { $all: list };
+    if (list.length) {
+      and.push(
+        Sequelize.literal(`("remote"->'tags') @> ${toJsonbArrayLiteral(list)}`)
+      );
+    }
   }
 
   // Price range
   if (qs.priceFrom || qs.priceTo) {
     const range = {};
-    if (qs.priceFrom) range.$gte = Number(qs.priceFrom);
-    if (qs.priceTo) range.$lte = Number(qs.priceTo);
-    where["derived.priceMin"] = range;
+    if (qs.priceFrom) range[Op.gte] = Number(qs.priceFrom);
+    if (qs.priceTo) range[Op.lte] = Number(qs.priceTo);
+    and.push(
+      Sequelize.where(
+        Sequelize.literal(PRICE_MIN_NUMERIC_SQL),
+        range
+      )
+    );
   }
   if (qs.isAd) {
-    where["overrides.isAd"] = true;
+    and.push(Sequelize.where(Sequelize.json("overrides.isAd"), true));
   }
 
   // -------- Metacritic score range --------
   // Assuming stored at remote.metacriticScore (change path if different)
   if (qs.metacriticScoreFrom || qs.metacriticScoreTo) {
     const range = {};
-    if (qs.metacriticScoreFrom) range.$gte = Number(qs.metacriticScoreFrom);
-    if (qs.metacriticScoreTo) range.$lte = Number(qs.metacriticScoreTo);
-    where["remote.metacriticScore"] = range;
+    if (qs.metacriticScoreFrom) range[Op.gte] = Number(qs.metacriticScoreFrom);
+    if (qs.metacriticScoreTo) range[Op.lte] = Number(qs.metacriticScoreTo);
+    and.push(
+      Sequelize.where(
+        Sequelize.literal(METACRITIC_NUMERIC_SQL),
+        range
+      )
+    );
   } else if (qs.metacriticScore) {
-    where["remote.metacriticScore"] = Number(qs.metacriticScore);
+    and.push(
+      Sequelize.where(
+        Sequelize.literal(METACRITIC_NUMERIC_SQL),
+        Number(qs.metacriticScore)
+      )
+    );
   }
 
   // Search
@@ -151,18 +215,11 @@ function buildListQuery(qs) {
     const searchText = String(qs.q).trim();
     if (searchText) {
       search = buildSearchDescriptor(searchText);
+      and.push(Sequelize.literal(buildSearchFilterSql(search, SEARCH_NAME_SQL)));
     }
   }
 
   // -------- Sorting --------
-  const sortFieldMap = {
-    priceMin: "derived.priceMin",
-    updatedAt: "updatedAt",
-    name: ["overrides.name", "remote.name"],
-    releaseDate: releaseField,
-    metacriticScore: "remote.metacriticScore",
-  };
-
   const sortByKey = [
     "priceMin",
     "updatedAt",
@@ -172,20 +229,31 @@ function buildListQuery(qs) {
   ].includes(qs.sortBy)
     ? qs.sortBy
     : "priceMin";
+  const sortDir =
+    String(qs.sortType || "asc").toLowerCase() === "desc" ? "DESC" : "ASC";
+  const sortableExprMap = {
+    priceMin: Sequelize.literal(PRICE_MIN_NUMERIC_SQL),
+    metacriticScore: Sequelize.literal(METACRITIC_NUMERIC_SQL),
+    releaseDate: Sequelize.literal(`"remote"->>'releaseDate'`),
+    name: Sequelize.literal(SEARCH_NAME_SQL),
+  };
 
-  const dir = String(qs.sortType || "asc").toLowerCase() === "desc" ? -1 : 1;
-
-  let sort;
-  if (sortByKey === "name") {
-    sort = { "overrides.name": dir, "remote.name": dir };
-  } else {
-    const field = sortFieldMap[sortByKey];
-    sort = Array.isArray(field)
-      ? { [field[0]]: dir, [field[1]]: dir }
-      : { [field]: dir };
+  const primaryOrder =
+    sortByKey === "updatedAt"
+      ? [["updatedAt", sortDir]]
+      : [[sortableExprMap[sortByKey], sortDir]];
+  const order = [...primaryOrder, ["id", "ASC"]];
+  if (search) {
+    const { containsExpr, initialsExpr, popularityExpr } = buildSearchRankSql(
+      search,
+      SEARCH_NAME_SQL
+    );
+    order.unshift([Sequelize.literal(popularityExpr), "DESC"]);
+    order.unshift([Sequelize.literal(initialsExpr), "DESC"]);
+    order.unshift([Sequelize.literal(containsExpr), "DESC"]);
   }
 
-  return { where, page, limit, sort, search };
+  return { where: { [Op.and]: and }, page, limit, order, search };
 }
 
 const {
@@ -195,35 +263,22 @@ const {
 // const { getShopIdsForPlatform } = require("../utils/platforms"); // if you ever need shops
 
 exports.listProducts = catchAsyncErrors(async (req, res, next) => {
-  const { where, page, limit, sort, search } = buildListQuery(req.query);
+  const { where, page, limit, order } = buildListQuery(req.query);
   const skip = (page - 1) * limit;
   let items;
   let pageCount;
-
-  if (search) {
-    const { dataPipeline, countPipeline } = buildSearchPipelines({
+  const [totalFilteredCount, pagedItems] = await Promise.all([
+    KinguinProduct.count({ where }),
+    KinguinProduct.findAll({
       where,
-      searchDescriptor: search,
-      sort,
-      skip,
+      order,
+      offset: skip,
       limit,
-    });
-
-    const [paged, countRows] = await Promise.all([
-      KinguinProduct.aggregate(dataPipeline),
-      KinguinProduct.aggregate(countPipeline),
-    ]);
-
-    items = paged;
-    const totalMatched = countRows?.[0]?.count || 0;
-    pageCount = Math.ceil(totalMatched / limit);
-  } else {
-    let counted = await KinguinProduct.find(where).sort(sort).clone().countDocuments();
-    pageCount = Math.ceil(counted / limit);
-    items = await KinguinProduct.find(where).sort(sort).skip(skip).limit(limit).lean();
-  }
-
-  const count = await KinguinProduct.countDocuments();
+      raw: true,
+    }),
+  ]);
+  items = pagedItems;
+  pageCount = Math.ceil(totalFilteredCount / limit);
 
   // helpers (inline)
   const truncate2 = (n) => Math.trunc(Number(n) * 100) / 100;
@@ -268,7 +323,7 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
       })
     : [];
 
-  const updatedOfficialById = {}; // _id (string) -> officialStore object
+  const updatedOfficialById = {}; // id (string) -> officialStore object
 
   if (candidates.length > 0) {
     // 2) build title -> [productIds] map
@@ -285,7 +340,7 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
         entry = { title, productIds: [] };
         titleMap.set(key, entry);
       }
-      entry.productIds.push(p._id.toString());
+      entry.productIds.push(String(p.id));
     }
 
     const titles = Array.from(titleMap.values()).map((e) => e.title);
@@ -316,8 +371,8 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
           // 5) fetch prices for all these gameIds in one API call
           const pricesResp = await getPricesByGameIds(gameIds, { country });
 
-          // 6) prepare bulk Mongo updates
-          const bulkOps = [];
+          // 6) prepare SQL updates
+          const updateTasks = [];
 
           for (const entry of pricesResp) {
             // ✅ use `id`, not `gameId`
@@ -348,17 +403,17 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
             const productIds = gameIdToProductIds.get(gameId) || [];
             for (const pid of productIds) {
               updatedOfficialById[pid] = officialStore;
-              bulkOps.push({
-                updateOne: {
-                  filter: { _id: pid },
-                  update: { $set: { officialStore } },
-                },
-              });
+              updateTasks.push(
+                KinguinProduct.update(
+                  { officialStore },
+                  { where: { id: Number(pid) } }
+                )
+              );
             }
           }
 
-          if (bulkOps.length > 0) {
-            await KinguinProduct.bulkWrite(bulkOps, { ordered: false });
+          if (updateTasks.length > 0) {
+            await Promise.all(updateTasks);
           }
         }
       } catch (err) {
@@ -373,7 +428,7 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
     const priceIQD = p.derived?.priceMin ?? null;
     const priceConverted = priceIQD != null ? truncate2(priceIQD * rate) : null;
 
-    const idStr = p._id.toString();
+    const idStr = String(p.id);
 
     // use freshly-fetched officialStore if we just updated it in this request
     let officialForResponse =
@@ -393,7 +448,7 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
     const discountVsOfficial = null; // keeping as-is, you commented this out in getProduct
 
     return {
-      kinguinId: p._id,
+      kinguinId: p.id,
       name: p.overrides?.name || p.remote?.name,
       images: p.remote?.images,
 
@@ -446,7 +501,7 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
 
   res.status(200).json({
     status: "success",
-    meta: { pageCount, page, limit, item_count: count },
+    meta: { pageCount, page, limit, item_count: totalFilteredCount },
     results,
   });
 });
@@ -459,7 +514,7 @@ exports.getProduct = catchAsyncErrors(async (req, res, next) => {
   if (!kinguinId) return next(new appError("kinguinId must be a number", 400));
 
   // Lean for perf
-  let p = await KinguinProduct.findById(kinguinId).lean();
+  let p = await KinguinProduct.findByPk(kinguinId, { raw: true });
   if (!p || p.flags?.hidden === true) {
     return res.status(404).json({ status: "not_found" });
   }
@@ -495,7 +550,6 @@ exports.getProduct = catchAsyncErrors(async (req, res, next) => {
       (req.user && req.user.countryCode) ||
       process.env.ITAD_DEFAULT_COUNTRY ||
       "US";
-    let newp;
     try {
       const deal = await getOfficialDealForTitle(title, {
         country,
@@ -516,12 +570,8 @@ exports.getProduct = catchAsyncErrors(async (req, res, next) => {
           lastUpdatedAt: new Date(),
         };
 
-        // Update Mongo separately (p is lean)
-        newp = await KinguinProduct.findByIdAndUpdate(
-          kinguinId,
-          { officialStore },
-          { new: false }
-        );
+        await KinguinProduct.update({ officialStore }, { where: { id: kinguinId } });
+        p = await KinguinProduct.findByPk(kinguinId, { raw: true });
       }
     } catch (e) {
       console.error("ITAD price fetch failed", {
@@ -552,7 +602,7 @@ exports.getProduct = catchAsyncErrors(async (req, res, next) => {
   res.status(200).json({
     status: "success",
     data: {
-      kinguinId: p._id,
+      kinguinId: p.id,
       name: p.overrides?.name || p.remote?.name,
       description: p.overrides?.description || p.remote?.description,
       images: p.overrides?.images || p.remote?.images,
@@ -623,16 +673,28 @@ exports.patchOverrides = catchAsyncErrors(async (req, res, next) => {
   if (!Object.keys(allowed).length)
     return next(new appError("No override fields provided", 400));
 
-  const updated = await KinguinProduct.findOneAndUpdate(
-    { _id: id },
-    { $set: allowed },
-    { new: true, upsert: true }
-  ).lean();
+  const existing = await KinguinProduct.findByPk(id);
+  if (!existing) {
+    return next(new appError("product not found", 404));
+  }
+  const overrides = { ...(existing.overrides || {}) };
+  if (allowed["overrides.name"] !== undefined)
+    overrides.name = allowed["overrides.name"];
+  if (allowed["overrides.isAd"] !== undefined)
+    overrides.isAd = allowed["overrides.isAd"];
+  if (allowed["overrides.description"] !== undefined)
+    overrides.description = allowed["overrides.description"];
+  if (allowed["overrides.images"] !== undefined)
+    overrides.images = allowed["overrides.images"];
+  if (allowed["overrides.coverImage"] !== undefined)
+    overrides.coverImage = allowed["overrides.coverImage"];
+  await existing.update({ overrides });
+  const updated = existing.get({ plain: true });
 
   res.status(200).json({
     status: "success",
     data: {
-      kinguinId: updated._id,
+      kinguinId: updated.id,
       name: updated.overrides?.name || updated.remote?.name,
       images: updated.overrides?.images || updated.remote?.images,
       description:

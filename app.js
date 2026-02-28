@@ -41,7 +41,6 @@ app.use(mongoSanitize());
 app.use(xss());
 app.use(hpp());
 
-// app.enable('trust proxy');
 
 // !!!! the cros options depens on the cloud service this api will run on -- it may needs addtion settings
 // Replace with your frontend's URL
@@ -58,6 +57,11 @@ app.set("trust proxy", 1);
 
 // app.options('*', cors());
 app.use(exp.static(path.join(__dirname, "public")));
+
+// Lightweight probe endpoint for platform health checks.
+app.get("/healthz", (req, res) => {
+  res.status(200).json({ status: "ok" });
+});
 
 app.get("/", (req, res) => {
   console.log("working");

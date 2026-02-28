@@ -1,5 +1,5 @@
 const catchAsyncErrors = require("../utils/catchAsyncErrors");
-const User = require("../models/userModel");
+const { Users: User } = require("../post-models");
 const appError = require("../utils/appError");
 
 const { deleteS3ObjectFromUrl } = require("../utils/deleteR2File");
@@ -16,11 +16,11 @@ function withProfileImageUrl(userDoc) {
 
 exports.updateProfileData = async (req, res, next) => {
   try {
-    const userId = req.user && req.user._id;
+    const userId = req.user && (req.user._id || req.user.id);
     if (!userId) {
       return res.status(401).json({ status: "fail", message: "Unauthorized" });
     }
-    const user = await User.findById(userId);
+    const user = await User.findByPk(userId);
     if (!user) {
       return res
         .status(404)
@@ -49,11 +49,11 @@ exports.updateProfileData = async (req, res, next) => {
 
 exports.updateProfileImage = async (req, res, next) => {
   try {
-    const userId = req.user && req.user._id;
+    const userId = req.user && (req.user._id || req.user.id);
     if (!userId) {
       return res.status(401).json({ status: "fail", message: "Unauthorized" });
     }
-    const user = await User.findById(userId);
+    const user = await User.findByPk(userId);
     if (!user) {
       return res
         .status(404)
@@ -87,14 +87,14 @@ exports.updateProfileImage = async (req, res, next) => {
 
 exports.deleteUser = catchAsyncErrors(async (req, res, next) => {
   let deletedUser;
-  if ((!req.user.role == "admin")) {
-    deletedUser = await User.findByIdAndUpdate(req.body.user, {
+  const targetId = req.user.role === "admin" ? req.body.user : (req.user._id || req.user.id);
+  deletedUser = await User.findByPk(targetId);
+  if (deletedUser) {
+    await deletedUser.update({
       active: false,
     });
   } else {
-    deletedUser = await User.findByIdAndUpdate(req.user._id, {
-      active: false,
-    });
+    deletedUser = null;
   }
   if (!deletedUser) {
     return next(new appError("user not found", 404));

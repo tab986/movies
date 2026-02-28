@@ -9,6 +9,7 @@ const {
   createMultiImageProcessingMiddleware,
 } = require("../utils/imageUploadMiddleware");
 const parseJsonBody = require("../utils/parseJsonBodyMiddleware");
+const requireDbReady = require("../utils/requireDbReady");
 
 const multer = require("multer");
 const {
@@ -21,11 +22,21 @@ const {
 const router = exp.Router({ mergeParams: true });
 router.route("/signup").post(authControllers.signup("admin"));
 router.route("/login").post(authControllers.login("admin"));
-router.route("/get-top-selling-games").get(statesController.getTopSellingGames);
+router
+  .route("/get-top-selling-games")
+  .get(
+    requireDbReady({ dependency: "dashboard top-selling products" }),
+    statesController.getTopSellingGames
+  );
 
 router.use(authControllers.protect);
 router.use(authControllers.onlyPermission("admin"));
-router.route("/stats").get(statesController.getDashboardStats);
+router
+  .route("/stats")
+  .get(
+    requireDbReady({ dependency: "dashboard stats catalog joins" }),
+    statesController.getDashboardStats
+  );
 
 //product
 const [uploadProductImages, resizeProductImages] =
@@ -75,11 +86,20 @@ router
 
   .patch(uploadAdImageUpdate, processAdImageUpdate, adsControllers.updateAd);
 //products
-router.get("/products", productsControllers.listProducts);
+router.get(
+  "/products",
+  requireDbReady({ dependency: "dashboard products catalog" }),
+  productsControllers.listProducts
+);
 
-router.get("/products/:kinguinId", productsControllers.getProduct);
+router.get(
+  "/products/:kinguinId",
+  requireDbReady({ dependency: "dashboard product details" }),
+  productsControllers.getProduct
+);
 router.patch(
   "/products/:kinguinId/overrides",
+  requireDbReady({ dependency: "dashboard product overrides" }),
   productsControllers.patchOverrides
 );
 

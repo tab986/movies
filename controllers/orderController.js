@@ -1,13 +1,13 @@
-const Order = require("../models/Orders");
-const Coupon = require("../models/Coupon");
-const KinguinProduct = require("../models/KinguinProduct");
+const { Order, Coupon, KinguinProduct } = require("../post-models");
 const axios = require("axios");
 const crypto = require("crypto");
 const factory = require("../utils/handlerFactory");
 const catchAsyncErrors = require("../utils/catchAsyncErrors");
 const appError = require("../utils/appError");
 const { convertFromIQD } = require("../utils/currency");
-const { status } = require("fs");
+const { stat } = require("fs");
+const { fetchKinguinProductById } = require("../lib/kinguinClient");
+const { Op } = require("sequelize");
 
 // Wayl config
 const WAYL_AUTH_KEY = process.env.WAYL_AUTH_KEY; // set in your .env
@@ -172,12 +172,58 @@ async function submitKinguinOrderForOrder(order) {
 
   const response = await submitKinguinOrderWithProducts({
     products: kinguinProducts,
-    orderExternalId: String(order._id),
+    orderExternalId: String(order.id),
   });
 
   order.kinguinOrderId = response.orderId;
   order.status = "kingwin";
   await order.save();
+}
+
+function normalizeWaylValue(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
+}
+
+function getWaylPaymentSignals(payload = {}) {
+  const referenceId =
+    payload.referenceId ||
+    payload.reference ||
+    payload.orderReference ||
+    payload?.data?.referenceId ||
+    payload?.data?.reference ||
+    null;
+
+  const paymentStatusRaw =
+    payload.paymentStatus || payload.status || payload?.data?.paymentStatus || "";
+  const eventRaw = payload.event || payload.eventType || payload?.data?.event || "";
+
+  const paymentStatus = normalizeWaylValue(paymentStatusRaw);
+  const event = normalizeWaylValue(eventRaw);
+  const successValues = new Set(["paid", "success", "succeeded", "completed"]);
+  const successEvents = new Set([
+    "paymentpaid",
+    "paymentcompleted",
+    "paymentcaptured",
+    "linkpaid",
+    "orderpaid",
+  ]);
+
+  const isPaid =
+    successValues.has(paymentStatus) ||
+    successEvents.has(event) ||
+    successEvents.has(event.replace(/\./g, ""));
+
+  return {
+    referenceId,
+    isPaid,
+    paymentStatus,
+    event,
+    paymentStatusRaw,
+    eventRaw,
+  };
 }
 // Create payment link via Wayl
 async function createWaylLink(referenceId, amount, productName, image, req) {
@@ -187,7 +233,7 @@ async function createWaylLink(referenceId, amount, productName, image, req) {
 
   // FX: detect target currency from IP (or ?currency / x-currency override)
   const fx = await convertFromIQD(req, iqd);
-
+  console.log("FX result:", fx ,":",typeof fx);
   // first 2 decimals (truncate, not round)
   const truncate2 = (n) => Math.trunc(Number(n) * 100) / 100;
 
@@ -263,7 +309,7 @@ async function createWaylLink(referenceId, amount, productName, image, req) {
 
 exports.checkout = async (req, res, next) => {
   try {
-    const userId = req.user._id;
+    const userId = req.user._id || req.user.id;
     // When placing an order the client may supply either a single `productId`
     // or a `cart` array containing multiple items. Each cart item should
     // specify a `productId` and a `qty` (quantity). A coupon code may also be
@@ -279,7 +325,7 @@ exports.checkout = async (req, res, next) => {
       // Process each cart entry
       for (const item of cart) {
         const { productId: pId, qty } = item;
-        const p = await KinguinProduct.findById(pId);
+        const p = await KinguinProduct.findByPk(Number(pId));
 
         if (!p) {
           return res
@@ -351,7 +397,7 @@ exports.checkout = async (req, res, next) => {
       totalPrice: total,
       waylReference: waylRef,
       products: orderItems.map((itm) => ({
-        product: itm.product._id.toString(),
+        product: String(itm.product.id),
         quantity: itm.quantity,
         unitPrice: itm.unitPrice,
       })),
@@ -410,14 +456,51 @@ exports.waylCallback = async (req, res, next) => {
     // }
 
     console.log(req.body);
+    const {
+      referenceId,
+      isPaid,
+      paymentStatus,
+      event,
+      paymentStatusRaw,
+      eventRaw,
+    } = getWaylPaymentSignals(req.body);
 
-    const { referenceId } = req.body;
-    const order = await Order.findOne({ waylReference: referenceId });
+    if (!referenceId) {
+      return res.status(400).json({
+        status: "fail",
+        message: "Missing Wayl referenceId in callback payload",
+      });
+    }
+
+    const order = await Order.findOne({ where: { waylReference: referenceId } });
     console.log(order);
     if (!order)
       return res
         .status(404)
         .json({ status: "fail", message: "Order not found" });
+
+    if (!isPaid) {
+      if (paymentStatus === "failed") {
+        order.waylPaymentStatus = "failed";
+        await order.save();
+      }
+      console.warn("[waylCallback] Rejected non-paid callback", {
+        referenceId,
+        orderId: order.id,
+        paymentStatus,
+        event,
+        paymentStatusRaw,
+        eventRaw,
+      });
+      return res.status(422).json({
+        status: "fail",
+        message: "Callback does not represent a successful payment",
+      });
+    }
+
+    if (["kingwin", "completed"].includes(order.status) && order.kinguinOrderId) {
+      return res.status(200).json({ status: "success", idempotent: true });
+    }
 
     // Mark order as paid according to Wayl
     order.waylPaymentStatus = "paid";
@@ -429,9 +512,16 @@ exports.waylCallback = async (req, res, next) => {
     let kinguinProducts = [];
     if (Array.isArray(order.products) && order.products.length > 0) {
       for (const item of order.products) {
-        const prod = await KinguinProduct.findById(item.product);
+        const dbProductId = Number(item.product);
+        const prod = Number.isFinite(dbProductId)
+          ? await KinguinProduct.findByPk(dbProductId)
+          : null;
         if (!prod) {
-          console.error(`[waylCallback] Product ${item.product} not found in DB, skipping`);
+          console.error("[waylCallback] Product not found in DB", {
+            referenceId,
+            orderId: order.id,
+            productId: item.product,
+          });
           continue;
         }
 
@@ -446,7 +536,12 @@ exports.waylCallback = async (req, res, next) => {
           : prod.remote?.price;
 
         if (!price) {
-          console.error(`[waylCallback] Product ${item.product} (${prod.remote?.name}) has no valid price, skipping`);
+          console.error("[waylCallback] Product has no valid price", {
+            referenceId,
+            orderId: order.id,
+            productId: item.product,
+            productName: prod.remote?.name,
+          });
           continue;
         }
 
@@ -459,7 +554,13 @@ exports.waylCallback = async (req, res, next) => {
     }
 
     if (kinguinProducts.length === 0) {
-      console.error(`[waylCallback] Order ${order._id} has no valid products for Kinguin`);
+      order.kinguinOrderId = "retry_required";
+      await order.save();
+      console.error("[waylCallback] No valid products for Kinguin", {
+        referenceId,
+        orderId: order.id,
+        rawProducts: order.products,
+      });
       return res.status(400).json({
         status: "fail",
         message: "No valid products could be sent to Kinguin",
@@ -468,16 +569,35 @@ exports.waylCallback = async (req, res, next) => {
 
     const kinguinPayload = {
       products: kinguinProducts,
-      orderExternalId: String(order._id),
+      orderExternalId: String(order.id),
     };
     console.log("[waylCallback] Kinguin payload:", JSON.stringify(kinguinPayload));
 
     // Place order with Kinguin
-    const kinguinOrderResponse = await kinguinPlaceOrderV2(kinguinPayload);
-    order.kinguinOrderId = kinguinOrderResponse.orderId;
-    order.status = "kingwin";
-    await order.save();
-    return res.json({ status: "success" });
+    try {
+      const kinguinOrderResponse = await kinguinPlaceOrderV2(kinguinPayload);
+      order.kinguinOrderId = kinguinOrderResponse.orderId;
+      order.status = "kingwin";
+      await order.save();
+      return res.json({ status: "success" });
+    } catch (err) {
+      order.kinguinOrderId = "retry_required";
+      await order.save();
+      console.error("[waylCallback] Kinguin order placement failed", {
+        referenceId,
+        orderId: order.id,
+        productIds: (order.products || []).map((p) => p.product),
+        kinguinPayload,
+        kinguinStatus: err.response?.status,
+        kinguinResponse: err.response?.data,
+        message: err.message,
+      });
+      return res.status(502).json({
+        status: "error",
+        message:
+          "Payment confirmed but Kinguin order placement failed; marked for retry",
+      });
+    }
   } catch (err) {
     next(err);
   }
@@ -488,15 +608,16 @@ exports.prepareKinguinOrderProduct = buildKinguinOrderProduct;
 
 // List current user's orders
 exports.myOrders = async (req, res) => {
-  const orders = await Order.find({
-    user: req.user._id,
-    status: { $in: ["completed", "kingwin"] },
-  })
-    .populate("product")
-    .sort("-createdAt")
-    .lean();
+  const orders = await Order.findAll({
+    where: {
+      user: req.user._id || req.user.id,
+      status: { [Op.in]: ["completed", "kingwin"] },
+    },
+    order: [["createdAt", "DESC"]],
+    raw: true,
+  });
   const summary = orders.map((o) => ({
-    id: o._id,
+    id: o.id,
     product: o.product,
     products: o.products,
     totalPrice: o.totalPrice,
@@ -509,12 +630,13 @@ exports.myOrders = async (req, res) => {
 // Get a specific order (with keys if completed)
 exports.getOrder = async (req, res) => {
   let order = await Order.findOne({
-    status: { $in: ["completed", "kingwin"] },
-    _id: req.params.id,
-    user: req.user._id,
-  })
-    .lean({ virtuals: true }) // include virtuals in plain object
-    .populate("products.detail");
+    where: {
+      status: { [Op.in]: ["completed", "kingwin"] },
+      id: req.params.id,
+      user: req.user._id || req.user.id,
+    },
+    raw: true,
+  });
 
   if (!order)
     return res.status(404).json({ status: "fail", message: "Order not found" });
@@ -537,16 +659,17 @@ exports.getOrder = async (req, res) => {
       }));
       if (keys.length > 0) {
         // Store all keys on the order; also mirror the first key into the legacy `key` field.
-        order = await Order.findOneAndUpdate(
-          { kinguinOrderId: order.kinguinOrderId },
+        await Order.update(
           {
-            keys: keys,
+            keys,
             status: "completed",
           },
-          { new: true }
-        )
-          .lean({ virtuals: true }) // include virtuals in plain object
-          .populate("products.detail");
+          { where: { kinguinOrderId: order.kinguinOrderId } }
+        );
+        order = await Order.findOne({
+          where: { kinguinOrderId: order.kinguinOrderId },
+          raw: true,
+        });
       }
     } catch (err) {
       const status = err.response?.status;
@@ -560,7 +683,7 @@ exports.getOrder = async (req, res) => {
 exports.getOrders = factory.getAll(Order, "orders");
 
 exports.getOrderUser = catchAsyncErrors(async (req, res, next) => {
-  const order = await Order.findById(req.params.orderId);
+  const order = await Order.findByPk(req.params.orderId);
   if (!order) {
     return next(new appError("order not found", 404));
   }
@@ -575,23 +698,26 @@ exports.getOrderUser = catchAsyncErrors(async (req, res, next) => {
 
 exports.updateOrder = catchAsyncErrors(async (req, res, next) => {
   if (req.body) {
-    const order = await Order.findByIdAndUpdate(req.params.orderId, req.body);
+    const order = await Order.findByPk(req.params.orderId);
+    if (!order) {
+      return next(new appError("order not found", 404));
+    }
+    await order.update(req.body);
     res.status(200).json({
       status: "success",
-      order: order,
+      order,
     });
   }
 });
 
 exports.deleteOrder = catchAsyncErrors(async (req, res, next) => {
-  let deletedorder;
-  deletedorder = await Order.findOneAndDelete({
-    _id: req.params.orderId,
-  });
+  const deletedorder = await Order.findByPk(req.params.orderId);
 
   if (!deletedorder) {
     return next(new appError("order not found", 404));
   }
+
+  await deletedorder.destroy();
 
   res.status(204).json({
     status: "success",
