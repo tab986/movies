@@ -2,6 +2,10 @@ function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function escapeSqlLiteral(value) {
+  return String(value).replace(/'/g, "''");
+}
+
 function normalizeText(value) {
   return String(value || "")
     .toLowerCase()
@@ -61,6 +65,90 @@ function buildSearchDescriptor(rawQuery) {
   const initialsVariants = unique(queryVariants.map(initialsFromText));
 
   return { queryVariants, tokens, rawTokens, expandedTokens, initialsVariants };
+}
+
+function buildContainsExpr(searchDescriptor, searchNameSql) {
+  const checks = [];
+  for (const variant of searchDescriptor.queryVariants || []) {
+    checks.push(`CASE WHEN ${searchNameSql} LIKE '%${escapeSqlLiteral(variant)}%' THEN 1 ELSE 0 END`);
+  }
+  for (const token of searchDescriptor.tokens || []) {
+    checks.push(`CASE WHEN ${searchNameSql} LIKE '%${escapeSqlLiteral(token)}%' THEN 1 ELSE 0 END`);
+  }
+  if (!checks.length) return "0";
+  return `GREATEST(${checks.join(", ")})`;
+}
+
+function buildInitialsSql(searchNameSql) {
+  return `(
+    SELECT STRING_AGG(LEFT(word, 1), '' ORDER BY ord)
+    FROM UNNEST(REGEXP_SPLIT_TO_ARRAY(${searchNameSql}, '\\s+')) WITH ORDINALITY AS t(word, ord)
+    WHERE word <> ''
+  )`;
+}
+
+function buildInitialsExpr(searchDescriptor, initialsSql) {
+  const variants = searchDescriptor.initialsVariants || [];
+  if (!variants.length) return "0";
+  const checks = variants.map(
+    (initials) => `CASE WHEN ${initialsSql} LIKE '${escapeSqlLiteral(initials)}%' THEN 1 ELSE 0 END`
+  );
+  return `GREATEST(${checks.join(", ")})`;
+}
+
+function buildTokenCoverageExpr(searchDescriptor, searchNameSql) {
+  const tokens = searchDescriptor.tokens || [];
+  if (!tokens.length) return "0";
+  const checks = tokens.map(
+    (token) => `CASE WHEN ${searchNameSql} LIKE '%${escapeSqlLiteral(token)}%' THEN 1 ELSE 0 END`
+  );
+  return `((${checks.join(" + ")})::double precision / ${tokens.length})`;
+}
+
+function buildPopularityExpr() {
+  const metacriticNorm = `LEAST(100, GREATEST(0, COALESCE(NULLIF("remote"->>'metacriticScore', '')::double precision, 0))) / 100.0`;
+  const qtyNorm = `LEAST(100, GREATEST(0, COALESCE(NULLIF("remote"->>'qty', '')::double precision, 0))) / 100.0`;
+  const offersNorm = `LEAST(20, COALESCE(JSONB_ARRAY_LENGTH(COALESCE("remote"->'offers', '[]'::jsonb)), 0)) / 20.0`;
+  const discountNorm = `LEAST(100, GREATEST(0, COALESCE(NULLIF("officialStore"->>'cut', '')::double precision, 0))) / 100.0`;
+  const releaseRecencyNorm = `GREATEST(
+    0,
+    1 - LEAST(
+      3650,
+      COALESCE(
+        EXTRACT(EPOCH FROM (NOW() - TO_DATE(NULLIF("remote"->>'releaseDate', ''), 'YYYY-MM-DD'))) / 86400,
+        3650
+      )
+    ) / 3650.0
+  )`;
+
+  return `(
+    (${metacriticNorm}) * 0.45 +
+    (${qtyNorm}) * 0.20 +
+    (${offersNorm}) * 0.15 +
+    (${discountNorm}) * 0.10 +
+    (${releaseRecencyNorm}) * 0.10
+  )`;
+}
+
+function buildSearchFilterSql(searchDescriptor, searchNameSql) {
+  const containsExpr = buildContainsExpr(searchDescriptor, searchNameSql);
+  const initialsExpr = buildInitialsExpr(searchDescriptor, buildInitialsSql(searchNameSql));
+  return `((${containsExpr}) = 1 OR (${initialsExpr}) = 1)`;
+}
+
+function buildSearchRankSql(searchDescriptor, searchNameSql) {
+  const initialsSql = buildInitialsSql(searchNameSql);
+  const containsExpr = buildContainsExpr(searchDescriptor, searchNameSql);
+  const tokenCoverageExpr = buildTokenCoverageExpr(searchDescriptor, searchNameSql);
+  const initialsExpr = buildInitialsExpr(searchDescriptor, initialsSql);
+  const popularityExpr = buildPopularityExpr();
+
+  return {
+    containsExpr,
+    initialsExpr,
+    relevanceExpr: `((${containsExpr}) * 10 + (${tokenCoverageExpr}) * 3 + (${initialsExpr}) * 2)`,
+    popularityExpr,
+  };
 }
 
 function maxCondition(matchExpressions) {
@@ -319,4 +407,9 @@ function buildSearchPipelines({ where, searchDescriptor, sort, skip, limit }) {
   };
 }
 
-module.exports = { buildSearchDescriptor, buildSearchPipelines };
+module.exports = {
+  buildSearchDescriptor,
+  buildSearchFilterSql,
+  buildSearchRankSql,
+  buildSearchPipelines,
+};
