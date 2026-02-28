@@ -263,7 +263,7 @@ const {
 // const { getShopIdsForPlatform } = require("../utils/platforms"); // if you ever need shops
 
 exports.listProducts = catchAsyncErrors(async (req, res, next) => {
-  const { where, page, limit, order } = buildListQuery(req.query);
+  const { where, page, limit, order, search } = buildListQuery(req.query);
   const skip = (page - 1) * limit;
   let items;
   let pageCount;
