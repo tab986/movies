@@ -351,24 +351,6 @@ exports.checkout = async (req, res, next) => {
       }
       total = Math.max(0, total - discount);
     }
-    // else {
-    //   // Single product purchase
-    //   const p = await KinguinProduct.findById(productId);
-    //   if (!p) {
-    //     return res.status(404).json({ status: "fail", message: "Product not found" });
-    //   }
-    //   const basePrice = p.derived?.priceMin;
-    //   if (!basePrice) {
-    //     return res.status(400).json({ status: "fail", message: "Product has no price" });
-    //   }
-    //   if (couponCode) {
-    //     const coupon = await Coupon.findOne({ code: couponCode });
-    //     if (coupon) discount = coupon.applyDiscount(basePrice);
-    //   }
-    //   const quantity = 1;
-    //   orderItems.push({ product: p, quantity, unitPrice: basePrice });
-    //   total = Math.max(0, basePrice - discount);
-    // }
 
     // Check Kinguin balance. Convert total to EUR using EUR_TO_IQD if present.
     let check = 0;
@@ -392,8 +374,6 @@ exports.checkout = async (req, res, next) => {
     const waylRef = `WAYL-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const orderData = {
       user: userId,
-      // coupon: couponCode,
-      // discount,
       totalPrice: total,
       waylReference: waylRef,
       products: orderItems.map((itm) => ({
@@ -403,12 +383,7 @@ exports.checkout = async (req, res, next) => {
       })),
     };
     console.log("orderData", orderData);
-    // Mirror single item into legacy fields
-    // if (orderData.products.length === 1) {
-    //   orderData.product = orderData.products[0].product;
-    //   orderData.quantity = orderData.products[0].quantity;
-    //   orderData.unitPrice = orderData.products[0].unitPrice;
-    // }
+    
     const order = await Order.create(orderData);
 
     // Compose label and image for Wayl. For carts use a generic label and the first
@@ -420,10 +395,6 @@ exports.checkout = async (req, res, next) => {
       image = orderItems[0].product.remote?.images?.cover?.url;
 
     }
-    // else {
-    //   label = orderItems[0].product.remote?.name;
-    //   image = orderItems[0].product.remote?.images?.cover?.url;
-    // }
     const waylResponse = await createWaylLink(
       waylRef,
       total,
@@ -449,11 +420,6 @@ exports.checkout = async (req, res, next) => {
 // Wayl payment webhook
 exports.waylCallback = async (req, res, next) => {
   try {
-    // if (!verifyWaylSignature(req)) {
-    //   return res
-    //     .status(400)
-    //     .json({ status: "fail", message: "Invalid signature" });
-    // }
 
     console.log(req.body);
     const {

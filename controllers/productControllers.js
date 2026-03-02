@@ -433,16 +433,6 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
     console.log(`updatedOfficialById ::${{ ...updatedOfficialById }}`);
     console.log(updatedOfficialById);
 
-    // // same logic as getProduct:
-    // // if our minimum IQD price is > official IQD price, hide official block
-    // if (
-    //   officialForResponse &&
-    //   typeof priceIQD === "number" &&
-    //   typeof officialForResponse.priceAmount === "number" &&
-    //   priceIQD > officialForResponse.priceAmount
-    // ) {
-    //   officialForResponse = null;
-    // }
 
     const discountVsOfficial = null; // keeping as-is, you commented this out in getProduct
 
@@ -463,8 +453,6 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
             shopId: officialForResponse.shopId,
             shopName: officialForResponse.shopName,
             url: officialForResponse.url,
-            // country: officialForResponse.country,
-            // currency: officialForResponse.currency,
             priceAmount: officialForResponse.priceAmount, // already in IQD
             regularAmount: officialForResponse.regularAmount, // already in IQD
             cut: officialForResponse.cut,
@@ -561,8 +549,6 @@ exports.getProduct = catchAsyncErrors(async (req, res, next) => {
           shopId: deal.shopId,
           shopName: deal.shopName,
           url: deal.url,
-          // country: deal.country,
-          // currency: deal.currency,
           priceAmount: deal.priceAmount * 1310.0,
           regularAmount: deal.regularAmount * 1310.0,
           cut: deal.cut,
@@ -584,17 +570,6 @@ exports.getProduct = catchAsyncErrors(async (req, res, next) => {
 
   let discountVsOfficial = null;
 
-  // We only compute when currencies match; otherwise leave null
-  // if (
-  //   officialStore &&
-  //   typeof priceConverted === "number" &&
-  //   typeof officialStore.regularAmount === "number" &&
-  //   officialStore.regularAmount > 0 &&
-  //   officialStore.currency === currency
-  // ) {
-  //   const ratio = 1 - priceConverted / officialStore.regularAmount;
-  //   discountVsOfficial = Math.max(0, Math.round(ratio * 100));
-  // }
   if (officialStore && priceIQD > officialStore?.priceAmount)
     officialStore = null;
 

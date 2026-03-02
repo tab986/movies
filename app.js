@@ -8,6 +8,7 @@ const productsRouter = require("./routes/productsRoutes");
 const syncRoutes = require("./routes/syncRoutes");
 const webhooks = require("./routes/webhooks");
 const kinguinCacheRoutes = require("./routes/kinguinCacheRoutes");
+const liveSRouter = require("./routes/liveS");
 
 const errorControllers = require("./controllers/errorControllers");
 const appError = require("./utils/appError");
@@ -211,6 +212,7 @@ app.use("/api/v1/users", userRoutes);
 app.use("/api/v1/dashboard", dashboardRoutes);
 app.use("/api/v1/orders", orderRoutes);
 app.use("/api/v1/products", productsRouter);
+app.use("/api/v1", liveSRouter);
 
 // Mount webhooks for Kinguin events
 app.use("/webhooks", webhooks);
