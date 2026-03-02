@@ -1,6 +1,6 @@
 const router = require("express").Router();
 const fetchDataSome = require("../controllers/dataFetchSome");
+app.get("/liveS", (req , res) =>{ res = fetchDataSome()});
 
-router.get("/liveS", fetchDataSome);
 
 module.exports = router;
