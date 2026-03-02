@@ -8,7 +8,7 @@ const productsRouter = require("./routes/productsRoutes");
 const syncRoutes = require("./routes/syncRoutes");
 const webhooks = require("./routes/webhooks");
 const kinguinCacheRoutes = require("./routes/kinguinCacheRoutes");
-const liveSRouter = require("./routes/liveS");
+
 
 const errorControllers = require("./controllers/errorControllers");
 const appError = require("./utils/appError");
