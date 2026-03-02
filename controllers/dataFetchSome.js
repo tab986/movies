@@ -8,10 +8,7 @@ const pool = new Pool({
   host: process.env.POSTGRES_HOST,
   database: process.env.POSTGRES_DB  ,
   password: process.env.POSTGRES_PASSWORD,
-  port: process.env.PGPORT,
-  max: 10,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000,
+  port: process.env.PGPORT
 });
 
 const fetchDataSome = async (req, res, next) => {
