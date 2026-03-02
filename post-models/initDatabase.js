@@ -33,6 +33,7 @@ async function initDatabaseTables() {
 
   try {
     await sequelize.sync();
+    await sequelize.query(`CREATE EXTENSION IF NOT EXISTS pg_trgm;`);
     await sequelize.query(`
       CREATE INDEX IF NOT EXISTS idx_kinguin_price_min_num
       ON kinguin_products ((NULLIF("derived"->>'priceMin', '')::double precision));
@@ -68,6 +69,56 @@ async function initDatabaseTables() {
     await sequelize.query(`
       CREATE INDEX IF NOT EXISTS idx_kinguin_hidden_instock_expr
       ON kinguin_products ((("flags"->>'hidden') IS DISTINCT FROM 'true'), ("derived"->'inStock'));
+    `);
+    await sequelize.query(`
+      CREATE INDEX IF NOT EXISTS idx_kinguin_search_name_norm_trgm
+      ON kinguin_products
+      USING gin (
+        (
+          LOWER(
+            COALESCE(
+              "overrides"->>'name',
+              "remote"->>'name',
+              "remote"->>'originalName',
+              ''
+            )
+          )
+        ) gin_trgm_ops
+      );
+    `);
+    await sequelize.query(`
+      CREATE INDEX IF NOT EXISTS idx_kinguin_search_initials_prefix
+      ON kinguin_products (
+        (
+          regexp_replace(
+            regexp_replace(
+              LOWER(
+                COALESCE(
+                  "overrides"->>'name',
+                  "remote"->>'name',
+                  "remote"->>'originalName',
+                  ''
+                )
+              ),
+              '[^a-z0-9]+',
+              ' ',
+              'g'
+            ),
+            '(^|\\s+)([a-z0-9])[a-z0-9]*',
+            '\\2',
+            'g'
+          )
+        ) text_pattern_ops
+      );
+    `);
+    await sequelize.query(`
+      CREATE INDEX IF NOT EXISTS idx_kinguin_visible_instock_region_price
+      ON kinguin_products (
+        (NULLIF("remote"->>'regionId', '')::integer),
+        (NULLIF("derived"->>'priceMin', '')::double precision)
+      )
+      WHERE ("flags"->>'hidden') IS DISTINCT FROM 'true'
+        AND "derived"->'inStock' = 'true'::jsonb;
     `);
     console.log("[db-init] Table initialization completed successfully");
     return true;
