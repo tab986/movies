@@ -48,24 +48,6 @@ const NOT_HIDDEN_SQL = `"flags"->>'hidden' IS DISTINCT FROM 'true'`;
 const IN_STOCK_SQL = `"derived"->'inStock' = 'true'::jsonb`;
 const SEARCH_NAME_SQL =
   `LOWER(COALESCE("overrides"->>'name', "remote"->>'name', "remote"->>'originalName', ''))`;
-const SEARCH_IMAGES_SQL = `COALESCE("overrides"->'images', "remote"->'images')`;
-const SEARCH_PLATFORM_SQL = `"remote"->>'platform'`;
-const SEARCH_REGION_SQL = `NULLIF("remote"->>'regionId', '')::integer`;
-const SEARCH_RELEASE_DATE_SQL = `"remote"->>'releaseDate'`;
-const SEARCH_METACRITIC_SQL = `NULLIF("remote"->>'metacriticScore', '')::double precision`;
-const SEARCH_IN_STOCK_SQL = `COALESCE(NULLIF("derived"->>'inStock', '')::boolean, false)`;
-
-const COMPACT_SEARCH_ATTRIBUTES = [
-  ["id", "kinguinId"],
-  [Sequelize.literal(SEARCH_NAME_SQL), "name"],
-  [Sequelize.literal(SEARCH_IMAGES_SQL), "images"],
-  [Sequelize.literal(PRICE_MIN_NUMERIC_SQL), "priceMinIQD"],
-  [Sequelize.literal(SEARCH_IN_STOCK_SQL), "inStock"],
-  [Sequelize.literal(SEARCH_PLATFORM_SQL), "platform"],
-  [Sequelize.literal(SEARCH_REGION_SQL), "regionId"],
-  [Sequelize.literal(SEARCH_RELEASE_DATE_SQL), "releaseDate"],
-  [Sequelize.literal(SEARCH_METACRITIC_SQL), "metacriticScore"],
-];
 
 function toJsonbArrayLiteral(values) {
   return `'${JSON.stringify(values).replace(/'/g, "''")}'::jsonb`;
@@ -274,65 +256,6 @@ function buildListQuery(qs) {
   return { where: { [Op.and]: and }, page, limit, order, search };
 }
 
-function parseUseExactCount(qs, isSearchRequest, defaultExactForSearch = false) {
-  const countModeRaw = String(qs.countMode || "").trim().toLowerCase();
-  if (countModeRaw === "exact" || countModeRaw === "true" || countModeRaw === "1" || countModeRaw === "yes") {
-    return true;
-  }
-  if (countModeRaw === "fast" || countModeRaw === "false" || countModeRaw === "0" || countModeRaw === "no") {
-    return false;
-  }
-  if (!isSearchRequest) {
-    return true;
-  }
-  return defaultExactForSearch;
-}
-
-async function fetchPagedProducts({
-  where,
-  order,
-  page,
-  limit,
-  useExactCount,
-  attributes,
-}) {
-  const skip = (page - 1) * limit;
-  if (useExactCount) {
-    const [totalFilteredCount, items] = await Promise.all([
-      KinguinProduct.count({ where }),
-      KinguinProduct.findAll({
-        where,
-        order,
-        ...(attributes ? { attributes } : {}),
-        offset: skip,
-        limit,
-        raw: true,
-      }),
-    ]);
-    const pageCount = Math.ceil(totalFilteredCount / limit);
-    return {
-      items,
-      pageCount,
-      totalFilteredCount,
-      hasMore: page < pageCount,
-    };
-  }
-
-  const pagedItemsPlusOne = await KinguinProduct.findAll({
-    where,
-    order,
-    ...(attributes ? { attributes } : {}),
-    offset: skip,
-    limit: limit + 1,
-    raw: true,
-  });
-  const hasMore = pagedItemsPlusOne.length > limit;
-  const items = hasMore ? pagedItemsPlusOne.slice(0, limit) : pagedItemsPlusOne;
-  const totalFilteredCount = skip + items.length + (hasMore ? 1 : 0);
-  const pageCount = hasMore ? page + 1 : page;
-  return { items, pageCount, totalFilteredCount, hasMore };
-}
-
 const {
   lookupGameIdsByTitle,
   getPricesByGameIds,
@@ -342,20 +265,48 @@ const {
 exports.listProducts = catchAsyncErrors(async (req, res, next) => {
   const requestStartMs = Date.now();
   const { where, page, limit, order, search } = buildListQuery(req.query);
+  const skip = (page - 1) * limit;
   const isSearchRequest = Boolean(search);
-  const useExactCount = parseUseExactCount(req.query, isSearchRequest, false);
+  const countModeRaw = String(req.query.countMode || "").trim().toLowerCase();
+  const forceExactCount =
+    countModeRaw === "exact" ||
+    countModeRaw === "true" ||
+    countModeRaw === "1" ||
+    countModeRaw === "yes";
+  const useExactCount = !isSearchRequest || forceExactCount;
   let items;
   let pageCount;
   let totalFilteredCount;
   let hasMore = false;
   const dbStartMs = Date.now();
-  ({ items, pageCount, totalFilteredCount, hasMore } = await fetchPagedProducts({
-    where,
-    order,
-    page,
-    limit,
-    useExactCount,
-  }));
+  if (useExactCount) {
+    const [countValue, pagedItems] = await Promise.all([
+      KinguinProduct.count({ where }),
+      KinguinProduct.findAll({
+        where,
+        order,
+        offset: skip,
+        limit,
+        raw: true,
+      }),
+    ]);
+    totalFilteredCount = countValue;
+    items = pagedItems;
+    pageCount = Math.ceil(totalFilteredCount / limit);
+    hasMore = page < pageCount;
+  } else {
+    const pagedItemsPlusOne = await KinguinProduct.findAll({
+      where,
+      order,
+      offset: skip,
+      limit: limit + 1,
+      raw: true,
+    });
+    hasMore = pagedItemsPlusOne.length > limit;
+    items = hasMore ? pagedItemsPlusOne.slice(0, limit) : pagedItemsPlusOne;
+    totalFilteredCount = skip + items.length + (hasMore ? 1 : 0);
+    pageCount = hasMore ? page + 1 : page;
+  }
   const dbDurationMs = Date.now() - dbStartMs;
 
   // helpers (inline)
@@ -602,147 +553,6 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
       `[perf] listProducts countMode=exact dbMs=${dbDurationMs} refreshMs=${refreshDurationMs} totalMs=${totalDurationMs} totalFiltered=${totalFilteredCount} page=${page} limit=${limit}`
     );
   }
-});
-
-exports.searchProducts = catchAsyncErrors(async (req, res, next) => {
-  const requestStartMs = Date.now();
-  const safeQuery = { ...req.query };
-  const requestedLimit = Number(safeQuery.limit);
-  safeQuery.limit = Number.isFinite(requestedLimit)
-    ? String(Math.max(1, Math.min(60, requestedLimit)))
-    : "24";
-  const { where, page, limit, order, search } = buildListQuery(safeQuery);
-  const useExactCount = parseUseExactCount(safeQuery, Boolean(search), false);
-  const dbStartMs = Date.now();
-  const {
-    items,
-    pageCount,
-    totalFilteredCount,
-    hasMore,
-  } = await fetchPagedProducts({
-    where,
-    order,
-    page,
-    limit,
-    useExactCount,
-    attributes: COMPACT_SEARCH_ATTRIBUTES,
-  });
-  const dbDurationMs = Date.now() - dbStartMs;
-
-  const truncate2 = (n) => Math.trunc(Number(n) * 100) / 100;
-  const safeFormat = (amount, currency) => {
-    if (amount == null) return null;
-    try {
-      return new Intl.NumberFormat(undefined, {
-        style: "currency",
-        currency,
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }).format(amount);
-    } catch {
-      return `${amount.toFixed(2)} ${currency}`;
-    }
-  };
-
-  const fx = await convertFromIQD(req, 1);
-  const rate = fx.fxFallback ? 1 : fx.rate;
-  const currency = fx.fxFallback ? "IQD" : fx.currency;
-
-  const results = items.map((p) => {
-    const priceIQD = p.priceMinIQD ?? null;
-    const priceConverted = priceIQD != null ? truncate2(priceIQD * rate) : null;
-    return {
-      kinguinId: p.kinguinId,
-      name: p.name,
-      images: p.images,
-      currency,
-      priceMinIQD: priceIQD,
-      priceMin: priceConverted,
-      priceMinFormatted: safeFormat(priceConverted, currency),
-      inStock: p.inStock,
-      platform: p.platform,
-      regionId: p.regionId,
-      releaseDate: p.releaseDate,
-      metacriticScore: p.metacriticScore,
-    };
-  });
-
-  res.status(200).json({
-    status: "success",
-    meta: {
-      pageCount,
-      page,
-      limit,
-      item_count: totalFilteredCount,
-      hasMore,
-      exactCount: useExactCount,
-      compact: true,
-    },
-    results,
-  });
-
-  const totalDurationMs = Date.now() - requestStartMs;
-  console.log(
-    `[perf] searchProducts q="${String(req.query.q || "")}" countMode=${useExactCount ? "exact" : "fast"} dbMs=${dbDurationMs} totalMs=${totalDurationMs} totalFiltered=${totalFilteredCount} page=${page} limit=${limit}`
-  );
-});
-
-exports.suggestProducts = catchAsyncErrors(async (req, res, next) => {
-  const requestStartMs = Date.now();
-  const q = String(req.query.q || "").trim();
-  if (!q || q.length < 2) {
-    return res.status(200).json({
-      status: "success",
-      meta: { limit: 0, hasMore: false, compact: true, exactCount: false },
-      results: [],
-    });
-  }
-
-  const safeQuery = { ...req.query, q };
-  const requestedLimit = Number(safeQuery.limit);
-  safeQuery.limit = Number.isFinite(requestedLimit)
-    ? String(Math.max(1, Math.min(20, requestedLimit)))
-    : "10";
-  safeQuery.countMode = "fast";
-  safeQuery.page = "1";
-
-  const { where, limit, order } = buildListQuery(safeQuery);
-  const dbStartMs = Date.now();
-  const rows = await KinguinProduct.findAll({
-    where,
-    order,
-    attributes: COMPACT_SEARCH_ATTRIBUTES,
-    limit: limit + 1,
-    raw: true,
-  });
-  const dbDurationMs = Date.now() - dbStartMs;
-
-  const hasMore = rows.length > limit;
-  const items = hasMore ? rows.slice(0, limit) : rows;
-  const results = items.map((p) => ({
-    kinguinId: p.kinguinId,
-    name: p.name,
-    images: p.images,
-    priceMinIQD: p.priceMinIQD ?? null,
-    inStock: p.inStock,
-    platform: p.platform,
-  }));
-
-  res.status(200).json({
-    status: "success",
-    meta: {
-      limit,
-      hasMore,
-      compact: true,
-      exactCount: false,
-    },
-    results,
-  });
-
-  const totalDurationMs = Date.now() - requestStartMs;
-  console.log(
-    `[perf] suggestProducts q="${q}" dbMs=${dbDurationMs} totalMs=${totalDurationMs} limit=${limit} resultCount=${results.length} hasMore=${hasMore}`
-  );
 });
 
 const { getOfficialDealForTitle } = require("../utils/itadClient");

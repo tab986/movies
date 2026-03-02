@@ -10,19 +10,6 @@ router
   .route("/")
   .get(requireDbReady({ dependency: "products catalog" }), productsControllers.listProducts);
 
-router
-  .route("/search")
-  .get(
-    requireDbReady({ dependency: "products search catalog" }),
-    productsControllers.searchProducts
-  );
-router
-  .route("/suggest")
-  .get(
-    requireDbReady({ dependency: "products suggest catalog" }),
-    productsControllers.suggestProducts
-  );
-
 router.route("/ads").get(adsControllers.getAds);
 router.route("/ads/:id").get(adsControllers.getAd);
 router.get(
