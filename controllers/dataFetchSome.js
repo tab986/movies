@@ -19,7 +19,7 @@ const fetchDataSome = async (req, res, next) => {
     const { rows } = await pool.query(
       "SELECT remote FROM kinguin_products"
     );
-    return res.status(200).json(rows);
+    return res.status(200).json(rows.name, rows.qty, rows.price);
   } catch (error) {
     return next(error);
   }
