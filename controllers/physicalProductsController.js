@@ -1,4 +1,3 @@
-// const PhysicalProduct = require("../models/PhysicalProduct");
 // const catchAsyncErrors = require("../utils/catchAsyncErrors");
 // const AppError = require("../utils/appError");
 // const { convertFromIQD } = require("../utils/currency");

@@ -7,7 +7,6 @@
 // // through the API (orders are created when buyers checkout); rather it
 // // provides listing, detail and update operations.
 
-// const PhysicalOrder = require("../models/PhysicalOrder");
 // const PhysicalProduct = require("./PhysicalProduct");
 // const catchAsyncErrors = require("../utils/catchAsyncErrors");
 // const AppError = require("../utils/appError");

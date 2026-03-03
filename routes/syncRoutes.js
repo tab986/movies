@@ -69,7 +69,7 @@ router.post("/reconcile", async (req, res) => {
   }
 });
 
-// Import overlapping entities from Mongo test DB to Postgres (insert-only).
+// Backward-compatible endpoint name. Worker now runs a Postgres-only consistency/import pass.
 router.post("/import-mongo-test", async (req, res) => {
   try {
     const result = await runMongoToPostgresImport({ logger: console });
@@ -82,7 +82,7 @@ router.post("/import-mongo-test", async (req, res) => {
   }
 });
 
-// Validation endpoint for disabled gate and idempotent second run.
+// Backward-compatible validation endpoint for disable-gate and idempotency checks.
 router.post("/import-mongo-test/validate", async (req, res) => {
   try {
     const result = await validateMongoImportIdempotency({ logger: console });

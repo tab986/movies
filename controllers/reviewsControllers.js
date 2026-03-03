@@ -1,4 +1,3 @@
-// const Reviews = require("../models/reviewsModel");
 // const APIFeatures = require("../utils/APIFeatures");
 // const appError = require("../utils/appError");
 // const catchAsyncErrors = require("../utils/catchAsyncErrors");

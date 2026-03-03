@@ -5,9 +5,7 @@
 const router = require("express").Router();
 const axios = require("axios");
 const { runOnce } = require("../worker/deltaSync");
-
-let legacyOrderModelCache = null;
-let legacyOrderModelLoadAttempted = false;
+const { Order } = require("../post-models");
 
 const SECRET = process.env.WEBHOOK_SECRET || "";
 
@@ -18,22 +16,6 @@ const ESA_HEADERS = {
   "Content-Type": "application/json",
   "X-Api-Key": KINGUIN_API_KEY || "",
 };
-
-function getLegacyOrderModel(logger = console) {
-  if (legacyOrderModelCache) return legacyOrderModelCache;
-  if (legacyOrderModelLoadAttempted) return null;
-
-  legacyOrderModelLoadAttempted = true;
-  try {
-    legacyOrderModelCache = require("../models/Orders");
-    return legacyOrderModelCache;
-  } catch (error) {
-    logger.error(
-      `[webhooks] Legacy order model unavailable; webhook handlers will return 200 without processing. ${error.message}`,
-    );
-    return null;
-  }
-}
 
 // Validate incoming webhook using X-Kinguin-Secret header or ?secret parameter
 function verifySecret(req) {
@@ -61,11 +43,6 @@ router.post("/kinguin/order-complete", async (req, res) => {
   if (!verifySecret(req)) return res.sendStatus(401);
 
   try {
-    const Order = getLegacyOrderModel();
-    if (!Order) {
-      return res.sendStatus(200);
-    }
-
     // Kinguin sends the order ID in the webhook body
     const kinguinOrderId =
       req.body?.orderId || req.body?.orderExternalId || req.body?.dispatchId;
@@ -78,10 +55,10 @@ router.post("/kinguin/order-complete", async (req, res) => {
     console.log(`[wh order-complete] Received for kinguinOrderId: ${kinguinOrderId}`);
 
     // Find the order in our database
-    const order = await Order.findOne({ kinguinOrderId });
+    const order = await Order.findOne({ where: { kinguinOrderId } });
     if (!order) {
       // Try by orderExternalId (which is our internal order _id)
-      const orderByExternal = await Order.findById(req.body?.orderExternalId);
+      const orderByExternal = await Order.findByPk(req.body?.orderExternalId);
       if (!orderByExternal) {
         console.error("[wh order-complete] Order not found for:", kinguinOrderId);
         return res.sendStatus(200);
@@ -103,7 +80,7 @@ router.post("/kinguin/order-complete", async (req, res) => {
 // Helper: fetch keys from Kinguin API and store them on the order
 async function fetchAndStoreKeys(order) {
   if (!order.kinguinOrderId) {
-    console.error("[wh order-complete] Order has no kinguinOrderId:", order._id);
+    console.error("[wh order-complete] Order has no kinguinOrderId:", order.id);
     return;
   }
 
@@ -125,18 +102,18 @@ async function fetchAndStoreKeys(order) {
       order.status = "completed";
       await order.save();
       console.log(
-        `[wh order-complete] Order ${order._id} completed with ${keys.length} key(s)`
+        `[wh order-complete] Order ${order.id} completed with ${keys.length} key(s)`
       );
     } else {
       console.log(
-        `[wh order-complete] No keys yet for order ${order._id}, will retry on next webhook or user fetch`
+        `[wh order-complete] No keys yet for order ${order.id}, will retry on next webhook or user fetch`
       );
     }
   } catch (err) {
     const status = err.response?.status;
     const data = err.response?.data;
     console.error(
-      `[wh order-complete] Failed to fetch keys for order ${order._id}:`,
+      `[wh order-complete] Failed to fetch keys for order ${order.id}:`,
       status,
       data || err.message
     );
@@ -148,11 +125,6 @@ router.post("/kinguin/order-status", async (req, res) => {
   if (!verifySecret(req)) return res.sendStatus(401);
 
   try {
-    const Order = getLegacyOrderModel();
-    if (!Order) {
-      return res.sendStatus(200);
-    }
-
     const kinguinOrderId =
       req.body?.orderId || req.body?.orderExternalId;
     const newStatus = req.body?.status;
@@ -164,8 +136,8 @@ router.post("/kinguin/order-status", async (req, res) => {
     }
 
     const order =
-      (await Order.findOne({ kinguinOrderId })) ||
-      (await Order.findById(req.body?.orderExternalId));
+      (await Order.findOne({ where: { kinguinOrderId } })) ||
+      (await Order.findByPk(req.body?.orderExternalId));
 
     if (!order) {
       console.error("[wh order-status] Order not found for:", kinguinOrderId);
@@ -178,7 +150,7 @@ router.post("/kinguin/order-status", async (req, res) => {
     } else if (newStatus === "canceled" || newStatus === "out_of_stock") {
       order.status = "cancelled";
       await order.save();
-      console.log(`[wh order-status] Order ${order._id} cancelled (${newStatus})`);
+      console.log(`[wh order-status] Order ${order.id} cancelled (${newStatus})`);
     }
 
     res.sendStatus(200);
