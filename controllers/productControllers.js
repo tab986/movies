@@ -48,6 +48,50 @@ const NOT_HIDDEN_SQL = `"flags"->>'hidden' IS DISTINCT FROM 'true'`;
 const IN_STOCK_SQL = `"derived"->'inStock' = 'true'::jsonb`;
 const SEARCH_NAME_SQL =
   `LOWER(COALESCE("overrides"->>'name', "remote"->>'name', "remote"->>'originalName', ''))`;
+const KNOWN_IMAGE_KEYS = ["small", "medium", "large", "original"];
+
+function firstNonEmptyString(...values) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+function extractImageUrl(value) {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed || null;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return firstNonEmptyString(value.url, value.src, value.href);
+}
+
+function pickThumbnailFromImages(images) {
+  if (!images || typeof images !== "object" || Array.isArray(images)) {
+    return null;
+  }
+
+  for (const key of KNOWN_IMAGE_KEYS) {
+    const url = extractImageUrl(images[key]);
+    if (url) return url;
+  }
+  return null;
+}
+
+function resolveSuggestionThumbnail(product) {
+  return (
+    firstNonEmptyString(product?.overrides?.coverImage) ||
+    extractImageUrl(product?.overrides?.images?.cover) ||
+    extractImageUrl(product?.remote?.images?.cover) ||
+    pickThumbnailFromImages(product?.overrides?.images) ||
+    pickThumbnailFromImages(product?.remote?.images) ||
+    null
+  );
+}
 
 function toJsonbArrayLiteral(values) {
   return `'${JSON.stringify(values).replace(/'/g, "''")}'::jsonb`;
@@ -584,17 +628,13 @@ exports.suggestProducts = catchAsyncErrors(async (req, res, next) => {
     },
     attributes: [
       "id",
+      "overrides",
+      "remote",
       [
         Sequelize.literal(
           `COALESCE("overrides"->>'name', "remote"->>'name', "remote"->>'originalName', '')`
         ),
         "name",
-      ],
-      [
-        Sequelize.literal(
-          `COALESCE("overrides"->>'coverImage', "remote"->'images'->>'cover')`
-        ),
-        "thumbnail",
       ],
       [
         Sequelize.literal(
@@ -630,7 +670,7 @@ exports.suggestProducts = catchAsyncErrors(async (req, res, next) => {
     results: suggestions.map((item) => ({
       kinguinId: item.id,
       name: item.name,
-      thumbnail: item.thumbnail,
+      thumbnail: resolveSuggestionThumbnail(item),
       platform: item.platform,
       priceMin: item.priceMin,
     })),
