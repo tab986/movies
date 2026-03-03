@@ -592,7 +592,7 @@ exports.suggestProducts = catchAsyncErrors(async (req, res, next) => {
       ],
       [
         Sequelize.literal(
-          `COALESCE("overrides"->>'coverImage', "remote"->'images'->>'cover')`
+          `COALESCE(NULLIF(BTRIM("overrides"->>'coverImage'), ''), "remote"->'images'->>'cover')`
         ),
         "thumbnail",
       ],
