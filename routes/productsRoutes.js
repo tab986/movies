@@ -13,6 +13,9 @@ router
 router
   .route("/search")
   .get(requireDbReady({ dependency: "products catalog" }), productsControllers.listProducts);
+router
+  .route("/suggest")
+  .get(requireDbReady({ dependency: "products catalog" }), productsControllers.suggestProducts);
 
 router.route("/ads").get(adsControllers.getAds);
 router.route("/ads/:id").get(adsControllers.getAd);

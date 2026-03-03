@@ -555,6 +555,88 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
   }
 });
 
+exports.suggestProducts = catchAsyncErrors(async (req, res, next) => {
+  const searchText = String(req.query.q || "").trim();
+  if (!searchText) {
+    return next(new appError("Query parameter 'q' is required", 400));
+  }
+
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.max(1, Math.min(20, Number(req.query.limit) || 10));
+  const skip = (page - 1) * limit;
+
+  const search = buildSearchDescriptor(searchText);
+  if (!search) {
+    return next(new appError("Query parameter 'q' is required", 400));
+  }
+
+  const { containsExpr, initialsExpr, popularityExpr } = buildSearchRankSql(
+    search,
+    SEARCH_NAME_SQL
+  );
+  const suggestionsPlusOne = await KinguinProduct.findAll({
+    where: {
+      [Op.and]: [
+        Sequelize.literal(NOT_HIDDEN_SQL),
+        Sequelize.literal(IN_STOCK_SQL),
+        Sequelize.literal(buildSearchFilterSql(search, SEARCH_NAME_SQL)),
+      ],
+    },
+    attributes: [
+      "id",
+      [
+        Sequelize.literal(
+          `COALESCE("overrides"->>'name', "remote"->>'name', "remote"->>'originalName', '')`
+        ),
+        "name",
+      ],
+      [
+        Sequelize.literal(
+          `COALESCE("overrides"->>'coverImage', "remote"->'images'->>'cover')`
+        ),
+        "thumbnail",
+      ],
+      [
+        Sequelize.literal(
+          `COALESCE("derived"->>'platformCanonical', "remote"->>'platform', '')`
+        ),
+        "platform",
+      ],
+      [Sequelize.literal(PRICE_MIN_NUMERIC_SQL), "priceMin"],
+    ],
+    order: [
+      [Sequelize.literal(containsExpr), "DESC"],
+      [Sequelize.literal(initialsExpr), "DESC"],
+      [Sequelize.literal(popularityExpr), "DESC"],
+      ["id", "ASC"],
+    ],
+    offset: skip,
+    limit: limit + 1,
+    raw: true,
+  });
+
+  const hasMore = suggestionsPlusOne.length > limit;
+  const suggestions = hasMore
+    ? suggestionsPlusOne.slice(0, limit)
+    : suggestionsPlusOne;
+
+  res.status(200).json({
+    status: "success",
+    meta: {
+      page,
+      limit,
+      hasMore,
+    },
+    results: suggestions.map((item) => ({
+      kinguinId: item.id,
+      name: item.name,
+      thumbnail: item.thumbnail,
+      platform: item.platform,
+      priceMin: item.priceMin,
+    })),
+  });
+});
+
 const { getOfficialDealForTitle } = require("../utils/itadClient");
 const { getShopIdsForPlatform } = require("../utils/platforms");
 
