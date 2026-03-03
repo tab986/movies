@@ -9,11 +9,15 @@ const router = exp.Router({ mergeParams: true });
 router
   .route("/")
   .get(requireDbReady({ dependency: "products catalog" }), productsControllers.listProducts);
+// Temporary backward-compatibility alias for legacy frontend requests.
+router
+  .route("/search")
+  .get(requireDbReady({ dependency: "products catalog" }), productsControllers.listProducts);
 
 router.route("/ads").get(adsControllers.getAds);
 router.route("/ads/:id").get(adsControllers.getAd);
 router.get(
-  "/:kinguinId",
+  "/:kinguinId(\\d+)",
   requireDbReady({ dependency: "product details catalog" }),
   productsControllers.getProduct
 );

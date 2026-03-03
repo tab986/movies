@@ -887,9 +887,12 @@ In production:  Returns user-friendly messages for known errors:
 | Method | Path | Auth | Handler | Description |
 |--------|------|------|---------|-------------|
 | GET | `/` | Public | `productsControllers.listProducts` | List/search products |
+| GET | `/search` | Public | `productsControllers.listProducts` | Temporary alias for legacy frontend search calls |
 | GET | `/ads` | Public | `adsControllers.getAds` | List advertisements |
 | GET | `/ads/:id` | Public | `adsControllers.getAd` | Get single ad |
-| GET | `/:kinguinId` | Public | `productsControllers.getProduct` | Get product details |
+| GET | `/:kinguinId` (numeric only) | Public | `productsControllers.getProduct` | Get product details |
+
+Compatibility note: keep `/api/v1/products/search` while older frontend clients migrate to `/api/v1/products?q=...`; remove the alias after migration is complete.
 
 ### dashboardRoutes.js
 
