@@ -8,7 +8,7 @@ const { convertFromIQD } = require("../utils/currency");
 const { stat } = require("fs");
 const { fetchKinguinProductById } = require("../lib/kinguinClient");
 const { Op } = require("sequelize");
-const { applyCoupon } = require("../utils/coupon.js");
+const { applyCoupon , deleteCoupon } = require("../utils/coupon.js");
 // Wayl config
 const WAYL_AUTH_KEY = process.env.WAYL_AUTH_KEY; // set in your .env
 const WAYL_BASE = process.env.WAYL_BASE || "https://api.thewayl.com/api/v1";
@@ -468,6 +468,7 @@ exports.waylCallback = async (req, res, next) => {
     }
 
     if (["kingwin", "completed"].includes(order.status) && order.kinguinOrderId) {
+      await deleteCoupon(order.couponCode);
       return res.status(200).json({ status: "success", idempotent: true });
     }
 
