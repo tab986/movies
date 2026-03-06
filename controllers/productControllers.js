@@ -631,7 +631,7 @@ exports.suggestProducts = catchAsyncErrors(async (req, res, next) => {
       kinguinId: item.id,
       name: item.name,
       thumbnail: item.thumbnail,
-      image: item.thumbnail,
+      image: item.images,
       platform: item.platform,
       priceMin: item.priceMin,
     })),

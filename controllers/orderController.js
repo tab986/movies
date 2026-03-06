@@ -1,4 +1,4 @@
-const { Order, Coupon, KinguinProduct } = require("../post-models");
+const { Order, KinguinProduct } = require("../post-models");
 const axios = require("axios");
 const crypto = require("crypto");
 const factory = require("../utils/handlerFactory");
@@ -8,7 +8,7 @@ const { convertFromIQD } = require("../utils/currency");
 const { stat } = require("fs");
 const { fetchKinguinProductById } = require("../lib/kinguinClient");
 const { Op } = require("sequelize");
-
+const { applyCoupon } = require("../utils/coupon.js");
 // Wayl config
 const WAYL_AUTH_KEY = process.env.WAYL_AUTH_KEY; // set in your .env
 const WAYL_BASE = process.env.WAYL_BASE || "https://api.thewayl.com/api/v1";
@@ -319,8 +319,6 @@ exports.checkout = async (req, res, next) => {
 
     let orderItems = [];
     let total = 0;
-    let discount = 0;
-
     if (hasCart) {
       // Process each cart entry
       for (const item of cart) {
@@ -338,18 +336,23 @@ exports.checkout = async (req, res, next) => {
             .status(400)
             .json({ status: "fail", message: `Product ${pId} has no price` });
         }
+        
         const quantity = Number(qty) || 1;
         orderItems.push({ product: p, quantity, unitPrice: basePrice });
         total += basePrice * quantity;
       }
-      // Apply coupon to total
-      if (couponCode) {
-        const coupon = await Coupon.findOne({ code: couponCode });
-        if (coupon) {
-          discount = coupon.applyDiscount(total);
-        }
+    }
+
+    if (couponCode && String(couponCode).trim() !== "") {
+      try {
+        const discount = await applyCoupon(couponCode, total);
+        total = Math.max(0, total - discount);
+      } catch (err) {
+        return res.status(400).json({
+          status: "fail",
+          message: err.message || "Failed to apply coupon",
+        });
       }
-      total = Math.max(0, total - discount);
     }
 
     // Check Kinguin balance. Convert total to EUR using EUR_TO_IQD if present.
