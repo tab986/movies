@@ -2,7 +2,8 @@
 const express = require('express');
 const router = express.Router();
 const { createCoupon, deleteCoupon , applyCoupon } = require('../utils/coupon.js');
-const { Coupon } = require('../post-models');
+const { Op } = require('sequelize');
+const { Coupon, Users } = require('../post-models');
 const couponCode = require('coupon-code-generator');
 
 
@@ -80,10 +81,33 @@ router.get('/:code/users', async (req, res) => {
         const coupon = await getCouponByCanonicalCode(req, res);
         if (!coupon) return;
 
-        const users = Array.isArray(coupon.users) ? coupon.users : [];
+        const userIds = (Array.isArray(coupon.users) ? coupon.users : [])
+            .map((id) => String(id));
+
+        if (userIds.length === 0) {
+            res.status(200).json({
+                status: 'success',
+                users: []
+            });
+            return;
+        }
+
+        const users = await Users.findAll({
+            where: { id: { [Op.in]: userIds } },
+            attributes: ['id', 'fullName'],
+            raw: true
+        });
+
+        const userNameById = new Map(
+            users.map((user) => [String(user.id), user.fullName ?? null])
+        );
+
         res.status(200).json({
             status: 'success',
-            users
+            users: userIds.map((id) => ({
+                id,
+                fullName: userNameById.get(id) ?? null
+            }))
         });
     } catch (err) {
         res.status(500).json({ status: 'fail', message: err.message || 'Failed to fetch coupon users' });
