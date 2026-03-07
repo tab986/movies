@@ -592,9 +592,22 @@ exports.suggestProducts = catchAsyncErrors(async (req, res, next) => {
       ],
       [
         Sequelize.literal(
-          `COALESCE(NULLIF(BTRIM("overrides"->>'coverImage'), ''), "remote"->'images'->>'cover')`
+          `COALESCE(
+            NULLIF(BTRIM("overrides"->>'coverImage'), ''),
+            CASE
+              WHEN jsonb_typeof("remote"->'images'->'cover') = 'object'
+                THEN NULLIF(BTRIM("remote"->'images'->'cover'->>'url'), '')
+              WHEN jsonb_typeof("remote"->'images'->'cover') = 'string'
+                THEN NULLIF(BTRIM("remote"->'images'->>'cover'), '')
+              ELSE NULL
+            END
+          )`
         ),
         "thumbnail",
+      ],
+      [
+        Sequelize.literal(`COALESCE("overrides"->'images', "remote"->'images')`),
+        "image",
       ],
       [
         Sequelize.literal(
@@ -631,7 +644,7 @@ exports.suggestProducts = catchAsyncErrors(async (req, res, next) => {
       kinguinId: item.id,
       name: item.name,
       thumbnail: item.thumbnail,
-      image: item.thumbnail,
+      image: item.image,
       platform: item.platform,
       priceMin: item.priceMin,
     })),
