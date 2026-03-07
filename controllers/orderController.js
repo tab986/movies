@@ -1,4 +1,4 @@
-const { Order, KinguinProduct } = require("../post-models");
+const { Order, KinguinProduct, Coupon } = require("../post-models");
 const axios = require("axios");
 const crypto = require("crypto");
 const factory = require("../utils/handlerFactory");
@@ -8,7 +8,7 @@ const { convertFromIQD } = require("../utils/currency");
 const { stat } = require("fs");
 const { fetchKinguinProductById } = require("../lib/kinguinClient");
 const { Op } = require("sequelize");
-const { applyCoupon , deleteCoupon } = require("../utils/coupon.js");
+const { applyCoupon } = require("../utils/coupon.js");
 // Wayl config
 const WAYL_AUTH_KEY = process.env.WAYL_AUTH_KEY; // set in your .env
 const WAYL_BASE = process.env.WAYL_BASE || "https://api.thewayl.com/api/v1";
@@ -225,6 +225,36 @@ function getWaylPaymentSignals(payload = {}) {
     eventRaw,
   };
 }
+
+async function consumeCouponUsageForOrder(order) {
+  const couponCode = String(order?.coupon || "").trim();
+  if (!couponCode) {
+    return;
+  }
+
+  const coupon = await Coupon.findOne({ where: { code: couponCode } });
+  if (!coupon) {
+    console.warn("[waylCallback] Coupon missing for order", {
+      orderId: order?.id,
+      couponCode,
+    });
+    return;
+  }
+
+  const orderUserId = String(order?.user || "").trim();
+  if (!orderUserId) {
+    return;
+  }
+
+  const currentUsers = Array.isArray(coupon.users) ? coupon.users : [];
+  const normalizedUsers = currentUsers.map((id) => String(id));
+  if (normalizedUsers.includes(orderUserId)) {
+    return;
+  }
+
+  coupon.users = [...new Set([...normalizedUsers, orderUserId])];
+  await coupon.save();
+}
 // Create payment link via Wayl
 async function createWaylLink(referenceId, amount, productName, image, req) {
   // base (IQD from your system)
@@ -343,10 +373,14 @@ exports.checkout = async (req, res, next) => {
       }
     }
 
+    let discountAmount = 0;
+    let appliedCouponCode = null;
     if (couponCode && String(couponCode).trim() !== "") {
       try {
-        const discount = await applyCoupon(couponCode, total);
-        total = Math.max(0, total - discount);
+        const couponResult = await applyCoupon(couponCode, total, userId);
+        discountAmount = Number(couponResult?.discount) || 0;
+        appliedCouponCode = couponResult?.code || null;
+        total = Math.max(0, total - discountAmount);
       } catch (err) {
         return res.status(400).json({
           status: "fail",
@@ -378,6 +412,8 @@ exports.checkout = async (req, res, next) => {
     const orderData = {
       user: userId,
       totalPrice: total,
+      discount: discountAmount,
+      coupon: appliedCouponCode,
       waylReference: waylRef,
       products: orderItems.map((itm) => ({
         product: String(itm.product.id),
@@ -468,7 +504,7 @@ exports.waylCallback = async (req, res, next) => {
     }
 
     if (["kingwin", "completed"].includes(order.status) && order.kinguinOrderId) {
-      await deleteCoupon(order.couponCode);
+      await consumeCouponUsageForOrder(order);
       return res.status(200).json({ status: "success", idempotent: true });
     }
 
@@ -476,6 +512,7 @@ exports.waylCallback = async (req, res, next) => {
     order.waylPaymentStatus = "paid";
     order.status = "wayle";
     await order.save();
+    await consumeCouponUsageForOrder(order);
 
     // Build products payload for Kinguin API. Each entry needs
     // { kinguinId, qty, price } where price must match an available offer.

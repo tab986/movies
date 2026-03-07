@@ -14,7 +14,7 @@ async function generateCouponCode( ) {
     return code;
 }
 
-async function applyCoupon(code, cartValue) {
+async function applyCoupon(code, cartValue, userId) {
     const canonicalCode = couponCode.validate(code);
     if (!canonicalCode) {
         throw new Error('Invalid coupon code format');
@@ -23,6 +23,10 @@ async function applyCoupon(code, cartValue) {
     const amount = Number(cartValue);
     if (!Number.isFinite(amount) || amount < 0) {
         throw new Error('Invalid cart value');
+    }
+    const normalizedUserId = String(userId || "").trim();
+    if (!normalizedUserId) {
+        throw new Error('Invalid user id');
     }
 
     try {
@@ -35,6 +39,11 @@ async function applyCoupon(code, cartValue) {
         }
         if (coupon.expiresAt && new Date(coupon.expiresAt).getTime() < Date.now()) {
             throw new Error('Coupon is expired');
+        }
+        const usedUsers = Array.isArray(coupon.users) ? coupon.users : [];
+        const hasUsedCoupon = usedUsers.some((usedUserId) => String(usedUserId) === normalizedUserId);
+        if (hasUsedCoupon) {
+            throw new Error('Coupon already used by this user');
         }
 
         const couponValue = Number(coupon.value);
@@ -55,7 +64,11 @@ async function applyCoupon(code, cartValue) {
             throw new Error('Failed to calculate discount');
         }
 
-        return Math.max(0, Math.min(amount, discountAmount));
+        const discount = Math.max(0, Math.min(amount, discountAmount));
+        return {
+            code: canonicalCode,
+            discount,
+        };
     } catch (err) {
         throw err;
     }
