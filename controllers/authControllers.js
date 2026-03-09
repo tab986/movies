@@ -4,7 +4,6 @@ const { Users } = require("../post-models");
 const catchAsync = require("../utils/catchAsyncErrors");
 const AppError = require("../utils/appError");
 const APIFeatures = require("../utils/APIFeatures");
-const { Op } = require("sequelize");
 
 const createToken = (userId) =>
   jwt.sign({ id: userId }, process.env.JWT_SECRET, {
@@ -31,6 +30,41 @@ function sanitizeUser(user) {
   SENSITIVE_USER_FIELDS.forEach((field) => delete plain[field]);
   plain._id = plain.id;
   return plain;
+}
+
+function mapTwilioVerifyError(err, action = "process OTP") {
+  if (!err) {
+    return new AppError(`Unable to ${action} right now`, 502);
+  }
+
+  const twilioStatus = Number(err.status);
+  const twilioCode = Number(err.code);
+  const isTwilioError =
+    err.name === "TwilioRestError" || Number.isFinite(twilioCode);
+
+  if (!isTwilioError) return null;
+
+  if (twilioStatus === 401 || twilioStatus === 403) {
+    return new AppError("OTP provider authentication failed", 502);
+  }
+
+  if (twilioStatus === 404) {
+    return new AppError("OTP service is not configured correctly", 502);
+  }
+
+  if (twilioCode === 60200 || twilioCode === 60203) {
+    return new AppError("Invalid or unsupported phone number", 400);
+  }
+
+  if (twilioCode === 60202 || twilioCode === 20429) {
+    return new AppError("Too many OTP attempts, please try again later", 429);
+  }
+
+  if (twilioStatus >= 400 && twilioStatus < 500) {
+    return new AppError("Unable to process OTP request", 400);
+  }
+
+  return new AppError(`Unable to ${action} right now`, 502);
 }
 
 exports.signup = (role = "user") =>
@@ -246,14 +280,10 @@ exports.updatePasswordWithOld = catchAsync(async (req, res, next) => {
 exports.requestPasswordResetOtp = catchAsync(async (req, res, next) => {
   const { phoneNumber, phone, channel = "sms" } = req.body;
   const to = phoneNumber || phone;
-  if (!to) return next(new AppError("phoneNumber is required", 400));
+  if (!to) return next(new AppError("phone or phoneNumber is required", 400));
 
   // Ensure the user exists
-  const user = await Users.findOne({
-    where: {
-      [Op.or]: [{ phone: to }, { phoneNumber: to }],
-    },
-  });
+  const user = await Users.findOne({ where: { phone: to } });
   if (!user) return next(new AppError("User not found", 404));
 
   // Send OTP via Twilio Verify
@@ -262,9 +292,15 @@ exports.requestPasswordResetOtp = catchAsync(async (req, res, next) => {
     process.env.TWILIO_AUTH_TOKEN
   );
 
-  await twilio.verify.v2
-    .services(process.env.TWILIO_VERIFY_SID)
-    .verifications.create({ to, channel });
+  try {
+    await twilio.verify.v2
+      .services(process.env.TWILIO_VERIFY_SID)
+      .verifications.create({ to, channel });
+  } catch (err) {
+    const mappedError = mapTwilioVerifyError(err, "send OTP");
+    if (mappedError) return next(mappedError);
+    return next(err);
+  }
 
   res.status(200).json({
     status: "success",
@@ -286,11 +322,7 @@ exports.updatePasswordWithOtp = catchAsync(async (req, res, next) => {
   }
 
   // Find user
-  const user = await Users.findOne({
-    where: {
-      [Op.or]: [{ phone: to }, { phoneNumber: to }],
-    },
-  });
+  const user = await Users.findOne({ where: { phone: to } });
   if (!user) return next(new AppError("User not found", 404));
 
   // Bypass code for testing
@@ -300,9 +332,16 @@ exports.updatePasswordWithOtp = catchAsync(async (req, res, next) => {
       process.env.TWILIO_AUTH_TOKEN
     );
 
-    const check = await twilio.verify.v2
-      .services(process.env.TWILIO_VERIFY_SID)
-      .verificationChecks.create({ to, code });
+    let check;
+    try {
+      check = await twilio.verify.v2
+        .services(process.env.TWILIO_VERIFY_SID)
+        .verificationChecks.create({ to, code });
+    } catch (err) {
+      const mappedError = mapTwilioVerifyError(err, "verify OTP");
+      if (mappedError) return next(mappedError);
+      return next(err);
+    }
 
     if (!check || check.status !== "approved") {
       return next(new AppError("Invalid or expired code", 400));
