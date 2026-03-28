@@ -12,6 +12,7 @@ module.exports = (sequelize, DataTypes) => {
       value: { type: DataTypes.FLOAT, allowNull: false },
       expiresAt: DataTypes.DATE,
       active: { type: DataTypes.BOOLEAN, defaultValue: true },
+      users: { type: DataTypes.JSONB, defaultValue: [] }, // array of user ids that have used the coupon
     },
     {
       tableName: "coupons",

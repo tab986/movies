@@ -555,6 +555,29 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
   }
 });
 
+exports.listNewGames = catchAsyncErrors(async (req, res, next) => {
+  const now = new Date();
+  const releaseDateFromDate = new Date(
+    now.getFullYear() - 8,
+    now.getMonth(),
+    now.getDate()
+  );
+  const pad2 = (value) => String(value).padStart(2, "0");
+  const releaseDateFromDefault = `${releaseDateFromDate.getFullYear()}-${pad2(
+    releaseDateFromDate.getMonth() + 1
+  )}-${pad2(releaseDateFromDate.getDate())}`;
+
+  const mergedQuery = {
+    ...req.query,
+    sortBy: req.query.sortBy || "releaseDate",
+    sortType: req.query.sortType || "desc",
+    releaseDateFrom: req.query.releaseDateFrom || releaseDateFromDefault,
+  };
+
+  req.query = mergedQuery;
+  return exports.listProducts(req, res, next);
+});
+
 exports.suggestProducts = catchAsyncErrors(async (req, res, next) => {
   const searchText = String(req.query.q || "").trim();
   if (!searchText) {

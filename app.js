@@ -3,7 +3,7 @@ const exp = require("express");
 const dashboardRoutes = require("./routes/dashboardRoutes");
 const orderRoutes = require("./routes/orderRoutes");
 const productsRouter = require("./routes/productsRoutes");
-
+const coupon = require("./routes/coupon");
 // Import new routes for Kinguin sync and local catalog
 const syncRoutes = require("./routes/syncRoutes");
 const webhooks = require("./routes/webhooks");
@@ -202,6 +202,8 @@ app.get("/api/cloudflare/last24h", async (req, res) => {
   req.query.to = fmt(to);
   return app._router.handle(req, res, require("express/lib/router/layer")());
 });
+
+app.use("/api/v1/coupon", coupon);
 
 app.use("/api/v1/sync", syncRoutes);
 
