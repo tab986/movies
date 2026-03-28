@@ -4,7 +4,7 @@ const router = express.Router();
 const { createCoupon, deleteCoupon , applyCoupon } = require('../utils/coupon.js');
 const { Op } = require('sequelize');
 const { Coupon, Users } = require('../post-models');
-const couponCode = require('coupon-code-generator');
+const couponCode = require('coupon-code');
 
 
 // Route to create a new coupon (Admin access required in a real system)

@@ -1,4 +1,4 @@
-const couponCode = require('coupon-code-generator');
+const couponCode = require('coupon-code');
 const { Coupon } = require('../post-models');
 async function generateCouponCode( ) {
     let code = null;

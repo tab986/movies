@@ -17,7 +17,7 @@
     "bcryptjs": "^3.0.2",
     "body-parser": "^1.20.2",
     "cors": "^2.8.5",
-    "coupon-code-generator": "npm:coupon-code@^0.4.5",
+    "coupon-code": "^0.4.5",
     "crypto": "^1.0.1",
     "dotenv": "^16.3.1",
     "express": "^4.19.2",
