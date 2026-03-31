@@ -188,7 +188,7 @@ function buildListQuery(qs) {
   }
 
   if (String(qs.isCard).toLowerCase() === "true") {
-    and.push(Sequelize.where(Sequelize.json("remote.isCard"), true));
+    and.push(Sequelize.literal(`("remote"->'isCard') = 'true'::jsonb`));
   }
 
   // -------- Metacritic score range --------
