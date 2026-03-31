@@ -75,8 +75,6 @@ function buildListQuery(qs) {
       and.push(Sequelize.where(Sequelize.json("derived.platformCanonical"), canon));
     }
   }
-  // const wantCards = String(qs.isCard).toLowerCase() === "true";
-  // where["remote.isCard"] = wantCards ? true : { $ne: true };
   // Region
   if (qs.regionId) {
     and.push(Sequelize.where(Sequelize.json("remote.regionId"), Number(qs.regionId)));
@@ -189,6 +187,10 @@ function buildListQuery(qs) {
     and.push(Sequelize.where(Sequelize.json("overrides.isAd"), true));
   }
 
+  if (String(qs.isCard).toLowerCase() === "true") {
+    and.push(Sequelize.where(Sequelize.json("remote.isCard"), true));
+  }
+
   // -------- Metacritic score range --------
   // Assuming stored at remote.metacriticScore (change path if different)
   if (qs.metacriticScoreFrom || qs.metacriticScoreTo) {
@@ -261,6 +263,12 @@ const {
   getPricesByGameIds,
 } = require("../utils/itadClient");
 // const { getShopIdsForPlatform } = require("../utils/platforms"); // if you ever need shops
+
+/** Lists catalog items where `remote.isCard` is true (gift cards / prepaid), same query params as GET / */
+exports.listGiftCards = catchAsyncErrors(async (req, res, next) => {
+  req.query = { ...req.query, isCard: "true" };
+  return exports.listProducts(req, res, next);
+});
 
 exports.listProducts = catchAsyncErrors(async (req, res, next) => {
   const requestStartMs = Date.now();
