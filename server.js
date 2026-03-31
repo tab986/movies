@@ -1,6 +1,8 @@
+const path = require("path");
 const dot = require("dotenv");
+
 dot.config();
-dot.config({ path: "./config.env", override: false });
+dot.config({ path: path.join(__dirname, "config.env"), override: false });
 
 const app = require("./app");
 const { sequelize } = require("./post-models");

@@ -20,6 +20,13 @@ router
   .route("/new-games")
   .get(requireDbReady({ dependency: "products catalog" }), productsControllers.listNewGames);
 
+router
+  .route("/gift-cards")
+  .get(
+    requireDbReady({ dependency: "products catalog" }),
+    productsControllers.listGiftCards
+  );
+
 router.route("/ads").get(adsControllers.getAds);
 router.route("/ads/:id").get(adsControllers.getAd);
 router.get(

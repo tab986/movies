@@ -35,9 +35,13 @@ function buildConfigFromParts() {
 }
 
 function createSequelize() {
-  const uri = process.env.POSTGRES_URI || process.env.DATABASE_URL;
+  const uri =
+    process.env.POSTGRES_URI ||
+    process.env.DATABASE_URL ||
+    process.env.POSTGRES_URL;
 
   if (uri) {
+    console.log("[db] Using URI-based Postgres config (POSTGRES_URI/DATABASE_URL/POSTGRES_URL)");
     return new Sequelize(uri, {
       dialect: "postgres",
       logging: false,
@@ -45,6 +49,9 @@ function createSequelize() {
   }
 
   const config = buildConfigFromParts();
+  console.warn(
+    `[db] Using host-based Postgres config (host=${config.host}, port=${config.port}, db=${config.database})`
+  );
   return new Sequelize(config.database, config.username, config.password, config);
 }
 
