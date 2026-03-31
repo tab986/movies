@@ -2,7 +2,7 @@
 const { KinguinProduct, Sequelize } = require("../post-models"); // local mirror schema
 const catchAsyncErrors = require("../utils/catchAsyncErrors");
 const appError = require("../utils/appError");
-const { convertFromIQD } = require("../utils/currency");
+const { convertFromIQD, fixedPricingConfig } = require("../utils/currency");
 const { Op } = require("sequelize");
 const {
   buildSearchDescriptor,
@@ -333,10 +333,12 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
 
   const now = Date.now();
   const REFRESH_INTERVAL_MS = 48 * 60 * 60 * 1000; // 48h
-  const country =
-    (req.user && req.user.countryCode) ||
-    process.env.ITAD_DEFAULT_COUNTRY ||
-    "US";
+  const pricingCfg = fixedPricingConfig();
+  const country = pricingCfg.forcedPricing
+    ? pricingCfg.forcedCountryCode
+    : (req.user && req.user.countryCode) ||
+      process.env.ITAD_DEFAULT_COUNTRY ||
+      "US";
 
   // ---------- Batch ITAD refresh for items on this page ----------
   // Search requests should stay fast and never block on external price sync.
@@ -714,10 +716,12 @@ exports.getProduct = catchAsyncErrors(async (req, res, next) => {
     const title = p.remote?.originalName;
 
     const shopIds = getShopIdsForPlatform(p.remote?.platform);
-    const country =
-      (req.user && req.user.countryCode) ||
-      process.env.ITAD_DEFAULT_COUNTRY ||
-      "US";
+    const pricingCfg = fixedPricingConfig();
+    const country = pricingCfg.forcedPricing
+      ? pricingCfg.forcedCountryCode
+      : (req.user && req.user.countryCode) ||
+        process.env.ITAD_DEFAULT_COUNTRY ||
+        "US";
     try {
       const deal = await getOfficialDealForTitle(title, {
         country,
