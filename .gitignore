@@ -2,3 +2,4 @@ node_modules/
 .eslintc.json
 .prettierrc
 config.env
+.tmp-pgdata/
