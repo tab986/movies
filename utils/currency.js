@@ -197,7 +197,9 @@ async function getRateIQDTo(targetCurrency) {
 // ---------- main: convert IQD using IP (with overrides) ----------
 /**
  * Convert an IQD amount based on requester location (by IP).
- * Override with ?currency=USD or header x-currency: USD
+ * Query (?currency=) and header (x-currency) currency overrides apply only when
+ * fixed pricing is off. With FORCE_FIXED_PRICING enabled, they are ignored in favor
+ * of the forced geo/currency configuration.
  *
  * @param {import('express').Request} req
  * @param {number} iqdAmount
@@ -205,11 +207,14 @@ async function getRateIQDTo(targetCurrency) {
  */
 async function convertFromIQD(req, iqdAmount) {
   const cfg = fixedPricingConfig();
-  const override = (req.query?.currency || req.headers["x-currency"] || "")
-    .toString()
-    .trim()
-    .toUpperCase();
-  let target = /^[A-Z]{3}$/.test(override) ? override : null;
+  let target = null;
+  if (!cfg.forcedPricing) {
+    const override = (req.query?.currency || req.headers["x-currency"] || "")
+      .toString()
+      .trim()
+      .toUpperCase();
+    target = /^[A-Z]{3}$/.test(override) ? override : null;
+  }
   const ip = pickClientIp(req);
   const geo = cfg.forcedPricing
     ? { countryCode: cfg.forcedCountryCode, currency: cfg.forcedCurrencyCode }
