@@ -594,15 +594,17 @@ exports.listPopularGames = catchAsyncErrors(async (req, res, next) => {
     limit: req.query.limit,
   });
 
-  const normalizedResults = results.map((item) => ({
-    position: Number(item?.position) || null,
-    id: item?.id || null,
-    slug: item?.slug || null,
-    title: item?.title || null,
-    type: item?.type || null,
-    mature: Boolean(item?.mature),
-    count: Number(item?.count) || 0,
-  }));
+  const normalizedResults = results
+    .filter((item) => String(item?.type || "").toLowerCase() === "game")
+    .map((item) => ({
+      position: Number(item?.position) || null,
+      id: item?.id || null,
+      slug: item?.slug || null,
+      title: item?.title || null,
+      type: item?.type || null,
+      mature: Boolean(item?.mature),
+      count: Number(item?.count) || 0,
+    }));
 
   res.status(200).json({
     status: "success",
