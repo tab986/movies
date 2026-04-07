@@ -26,6 +26,7 @@ router
     requireDbReady({ dependency: "products catalog" }),
     productsControllers.listGiftCards
   );
+router.route("/popular-games").get(productsControllers.listPopularGames);
 
 router.route("/ads").get(adsControllers.getAds);
 router.route("/ads/:id").get(adsControllers.getAd);
