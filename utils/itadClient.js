@@ -3,6 +3,8 @@ const ITAD_BASE_URL =
 const ITAD_API_KEY = process.env.ITAD_API_KEY;
 
 const DEFAULT_COUNTRY = process.env.ITAD_DEFAULT_COUNTRY || "US";
+const DEFAULT_LIST_LIMIT = 20;
+const MAX_LIST_LIMIT = 500;
 
 function buildQuery(params = {}) {
   const qs = new URLSearchParams();
@@ -137,8 +139,37 @@ async function getOfficialDealForTitle(title, { country, shopIds } = {}) {
   };
 }
 
+function normalizeOffset(rawOffset) {
+  const value = Number(rawOffset);
+  if (!Number.isFinite(value) || value < 0) return 0;
+  return Math.floor(value);
+}
+
+function normalizeLimit(rawLimit) {
+  const value = Number(rawLimit);
+  if (!Number.isFinite(value) || value <= 0) return DEFAULT_LIST_LIMIT;
+  return Math.min(MAX_LIST_LIMIT, Math.floor(value));
+}
+
+async function getMostPopularGames(options = {}) {
+  const offset = normalizeOffset(options.offset);
+  const limit = normalizeLimit(options.limit);
+
+  const results = await itadRequest("/stats/most-popular/v1", {
+    method: "GET",
+    params: { offset, limit },
+  });
+
+  return {
+    offset,
+    limit,
+    results: Array.isArray(results) ? results : [],
+  };
+}
+
 module.exports = {
   lookupGameIdsByTitle,
   getPricesByGameIds,
   getOfficialDealForTitle,
+  getMostPopularGames,
 };
