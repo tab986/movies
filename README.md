@@ -24,6 +24,7 @@ A Node.js/Express backend for an Iraqi e-shop selling digital game keys, gift ca
    - [reviewsModel.js](#reviewsmodeljs)
    - [SyncState.js](#syncstatejs)
    - [PhysicalProduct.js & PhysicalOrder.js](#physicalproductjs--physicalorderjs)
+   - [Article.js (post-models)](#articlejs-post-models)
 4. [Controllers](#controllers)
    - [authControllers.js](#authcontrollersjs)
    - [orderController.js](#ordercontrollerjs)
@@ -38,10 +39,12 @@ A Node.js/Express backend for an Iraqi e-shop selling digital game keys, gift ca
    - [userDashboardController.js](#userdashboardcontrollerjs)
    - [userProfileControllers.js](#userprofilecontrollersjs)
    - [errorControllers.js](#errorcontrollersjs)
+   - [articleController.js](#articlecontrollerjs)
 5. [Routes (API Endpoints)](#routes)
    - [userRoutes.js](#userroutesjs)
    - [orderRoutes.js](#orderroutesjs)
    - [productsRoutes.js](#productsroutesjs)
+   - [articlesRoutes.js](#articlesroutesjs)
    - [dashboardRoutes.js](#dashboardroutesjs)
    - [syncRoutes.js](#syncroutesjs)
    - [kinguinCacheRoutes.js](#kinguincacheroutesjs)
@@ -94,11 +97,17 @@ game-wise-backend-v3/
 │   ├── homeController.js      # Homepage content management
 │   ├── storeController.js     # Store/merchant CRUD
 │   ├── adsController.js       # Advertisement CRUD
+│   ├── articleController.js   # CMS articles (public + admin)
 │   ├── tagsController.js      # Tag management
 │   ├── userControllers.js     # Admin user management
 │   ├── userDashboardController.js  # User profile (admin view)
 │   ├── userProfileControllers.js   # User profile (self-service)
 │   └── errorControllers.js    # Global error handler
+│
+├── post-models/               # Sequelize models (PostgreSQL)
+│   ├── Article.js             # CMS articles (blog/content)
+│   ├── KinguinProduct.js      # Cached Kinguin catalog
+│   └── ...                    # Other Sequelize models
 │
 ├── models/                    # Mongoose schemas
 │   ├── userModel.js           # User accounts (phone auth, roles)
@@ -118,6 +127,7 @@ game-wise-backend-v3/
 │   ├── userRoutes.js          # /api/v1/users
 │   ├── orderRoutes.js         # /api/v1/orders
 │   ├── productsRoutes.js      # /api/v1/products
+│   ├── articlesRoutes.js      # /api/v1/articles (public CMS reads)
 │   ├── dashboardRoutes.js     # /api/v1/dashboard
 │   ├── syncRoutes.js          # /api/v1/sync
 │   ├── kinguinCacheRoutes.js  # /api/v1/catalog
@@ -208,7 +218,7 @@ Line 27-31: Rate limiter config: max 10,000 requests per IP per hour.
 
 Line 35:    helmet() adds security headers (X-Content-Type-Options, etc.)
 
-Line 37-38: JSON body parsing. Accepts JSON payloads up to 10KB.
+Line 40-41: JSON body parsing (`bodyParser.json` and `express.json`). Accepts JSON payloads up to **1mb** (needed for CMS article bodies).
 
 Line 40:    mongoSanitize() strips $ and . from user input to prevent
             MongoDB query injection (e.g., { "$gt": "" } in login).
@@ -240,11 +250,12 @@ Line 201:   Mounts sync routes at /api/v1/sync (BEFORE rate limiter).
 
 Line 203:   Applies rate limiter to all routes below this line.
 
-Line 205-214: Mounts all route groups:
+Line ~215-223: Mounts all route groups:
               - /api/v1/users      → User auth and profiles
               - /api/v1/dashboard  → Admin dashboard
               - /api/v1/orders     → Order management
               - /api/v1/products   → Product catalog
+              - /api/v1/articles   → Public CMS articles (published only; `requireDbReady`)
               - /webhooks          → Kinguin webhooks
               - /api/v1/catalog    → Cached product catalog
 
@@ -545,6 +556,27 @@ SyncState schema:
 ### PhysicalProduct.js & PhysicalOrder.js
 
 Both files are **entirely commented out**. They were intended for physical product sales (non-digital) with seller/admin management but are not currently active.
+
+### Article.js (post-models)
+
+Sequelize model for **CMS articles** (storefront content, help pages, blog-style posts). Stored in PostgreSQL; table name `articles`.
+
+```
+Fields:
+  id               (UUID, PK)        — Primary key
+  slug             (String, unique)  — URL segment (unique; collisions get -2, -3, …)
+  title            (String)          — Headline
+  excerpt          (TEXT, optional)  — Short preview
+  body             (TEXT)            — Full content (HTML or markdown as stored)
+  status           (ENUM)            — "draft" or "published" (default: draft)
+  publishedAt      (DATE, optional)  — Set when published (or on first publish)
+  createdAt/updatedAt                 — Sequelize timestamps
+
+Indexes:
+  (status, publishedAt)              — Efficient public listing of published posts
+```
+
+Public API only returns rows with `status: "published"`. Admin dashboard can list and edit drafts.
 
 ---
 
@@ -847,6 +879,20 @@ In production:  Returns user-friendly messages for known errors:
   - Unknown errors  → "Something went wrong" (500)
 ```
 
+### articleController.js
+
+CMS articles: **public** handlers (published-only listing and by-slug) and **admin** CRUD (all statuses). Uses `catchAsyncErrors`, `AppError`, and helpers `slugify` / `resolveUniqueSlug` for unique slugs.
+
+```
+listPublished     — GET (public): paginated published articles (?page, ?limit; limit max 50)
+getPublishedBySlug — GET (public): one published article by slug (404 if missing)
+listAdmin         — GET (admin): all articles, newest updatedAt first
+getById           — GET (admin): by UUID
+create            — POST (admin): requires title + body; optional slug, excerpt, status, publishedAt
+update            — PATCH (admin): partial fields; slug uniqueness on change; publishedAt rules on publish
+delete            — DELETE (admin): 204 on success
+```
+
 ---
 
 ## Routes
@@ -895,6 +941,17 @@ In production:  Returns user-friendly messages for known errors:
 
 Compatibility note: `/api/v1/products/search` (full listing alias) and `/api/v1/products/suggest` (autocomplete endpoint) are both kept during frontend migration. Keep `/search` for legacy clients and migrate typeahead flows to `/suggest`.
 
+### articlesRoutes.js
+
+**Base path:** `/api/v1/articles` (mounted in `app.js` with `requireDbReady({ dependency: "articles" })`).
+
+| Method | Path | Auth | Handler | Description |
+|--------|------|------|---------|-------------|
+| GET | `/` | Public | `articleController.listPublished` | Paginated **published** articles (`?page`, `?limit`) |
+| GET | `/:slug` | Public | `articleController.getPublishedBySlug` | Single **published** article by slug |
+
+No JWT required. Drafts are never exposed here.
+
 ### dashboardRoutes.js
 
 **Base path:** `/api/v1/dashboard`
@@ -922,6 +979,13 @@ Compatibility note: `/api/v1/products/search` (full listing alias) and `/api/v1/
 | GET | `/ads/:adId` | Admin | Ads CRUD | Get ad |
 | DELETE | `/ads/:adId` | Admin | Ads CRUD | Delete ad |
 | PATCH | `/ads/:adId` | Admin | Image + Ads CRUD | Update ad |
+| GET | `/articles` | Admin | `articleController.listAdmin` | List all articles (drafts + published) |
+| POST | `/articles` | Admin | `articleController.create` | Create article |
+| GET | `/articles/:id` | Admin | `articleController.getById` | Get article by UUID |
+| PATCH | `/articles/:id` | Admin | `articleController.update` | Update article |
+| DELETE | `/articles/:id` | Admin | `articleController.delete` | Delete article |
+
+Article routes use `requireDbReady({ dependency: "articles" })` like other catalog-backed dashboard endpoints.
 
 ### syncRoutes.js
 
@@ -1300,6 +1364,11 @@ gw-sync-reconcile:
 MONGODB_URI              — MongoDB connection string
 MONGODB_DB               — Database name
 
+# PostgreSQL (Sequelize / post-models: catalog, CMS articles, orders)
+POSTGRES_URI or DATABASE_URL — Connection URI (or POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD)
+DB_INIT_ON_STARTUP       — When "true", runs sequelize.sync() on startup (creates tables such as `articles`, `kinguin_products`)
+EXIT_ON_STARTUP_DB_FAILURE — Optional: exit process if DB schema is not ready
+
 # Authentication
 JWT_SECRET               — Secret for signing JWT tokens
 JWT_EXPIRES_IN           — Token expiration (e.g., "90d")
@@ -1445,7 +1514,7 @@ INTERNAL SCHEDULER (optional):
 
 ## DB Startup Readiness
 
-For Postgres-backed catalog routes (`/api/v1/products`, `/api/v1/catalog`, and catalog-dependent dashboard/order endpoints), startup now enforces schema readiness:
+For Postgres-backed catalog routes (`/api/v1/products`, `/api/v1/catalog`, `/api/v1/articles`, and catalog-dependent dashboard/order endpoints), startup now enforces schema readiness:
 
 - Set `DB_INIT_ON_STARTUP=true` for at least one deployment when bootstrapping a new environment.
 - Startup logs include resolved values for `DB_INIT_ON_STARTUP` and `EXIT_ON_STARTUP_DB_FAILURE`.
