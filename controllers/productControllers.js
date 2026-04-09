@@ -9,6 +9,10 @@ const {
   buildSearchFilterSql,
   buildSearchRankSql,
 } = require("../utils/searchRanking");
+const {
+  buildProductSeoDetail,
+  buildProductSeoListItem,
+} = require("../utils/productSeo");
 
 // controllers/localProductsController.js (excerpt)
 
@@ -540,6 +544,7 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
       releaseDate: p.remote?.releaseDate,
       description: p.overrides?.description || p.remote?.description,
       remote: p.remote, // keep for admin/debug
+      seo: buildProductSeoListItem({ productRow: p, kinguinId: p.id }),
     };
   });
 
@@ -627,6 +632,7 @@ exports.listGanraGames = catchAsyncErrors(async (req, res, next) => {
       price: priceConverted,
       priceFormatted: safeFormat(priceConverted, currency),
       flags: p.flags && typeof p.flags === "object" ? p.flags : {},
+      seo: buildProductSeoListItem({ productRow: p, kinguinId: p.id }),
     };
   });
 
@@ -930,6 +936,8 @@ exports.getProduct = catchAsyncErrors(async (req, res, next) => {
       // discountVsOfficial,
 
       remote: p.remote,
+
+      seo: buildProductSeoDetail({ productRow: p, kinguinId: p.id }),
     },
   });
 });
