@@ -21,8 +21,17 @@ router
   .get(requireDbReady({ dependency: "products catalog" }), productsControllers.listNewGames);
 
 router
+<<<<<<< HEAD
   .route("/ganraGames")
   .get(requireDbReady({ dependency: "products catalog" }), productsControllers.listGanraGames);
+=======
+  .route("/gift-cards")
+  .get(
+    requireDbReady({ dependency: "products catalog" }),
+    productsControllers.listGiftCards
+  );
+router.route("/popular-games").get(productsControllers.listPopularGames);
+>>>>>>> 058f7ec9dd546c1d6703c6f831cda8629fc6901f
 
 router.route("/ads").get(adsControllers.getAds);
 router.route("/ads/:id").get(adsControllers.getAd);

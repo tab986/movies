@@ -75,8 +75,6 @@ function buildListQuery(qs) {
       and.push(Sequelize.where(Sequelize.json("derived.platformCanonical"), canon));
     }
   }
-  // const wantCards = String(qs.isCard).toLowerCase() === "true";
-  // where["remote.isCard"] = wantCards ? true : { $ne: true };
   // Region
   if (qs.regionId) {
     and.push(Sequelize.where(Sequelize.json("remote.regionId"), Number(qs.regionId)));
@@ -189,6 +187,10 @@ function buildListQuery(qs) {
     and.push(Sequelize.where(Sequelize.json("overrides.isAd"), true));
   }
 
+  if (String(qs.isCard).toLowerCase() === "true") {
+    and.push(Sequelize.literal(`("remote"->'isCard') = 'true'::jsonb`));
+  }
+
   // -------- Metacritic score range --------
   // Assuming stored at remote.metacriticScore (change path if different)
   if (qs.metacriticScoreFrom || qs.metacriticScoreTo) {
@@ -259,8 +261,16 @@ function buildListQuery(qs) {
 const {
   lookupGameIdsByTitle,
   getPricesByGameIds,
+  getMostPopularGames,
+  getOfficialDealForTitle,
 } = require("../utils/itadClient");
 // const { getShopIdsForPlatform } = require("../utils/platforms"); // if you ever need shops
+
+/** Lists catalog items where `remote.isCard` is true (gift cards / prepaid), same query params as GET / */
+exports.listGiftCards = catchAsyncErrors(async (req, res, next) => {
+  req.query = { ...req.query, isCard: "true" };
+  return exports.listProducts(req, res, next);
+});
 
 exports.listProducts = catchAsyncErrors(async (req, res, next) => {
   const requestStartMs = Date.now();
@@ -660,6 +670,37 @@ exports.listNewGames = catchAsyncErrors(async (req, res, next) => {
   return exports.listProducts(req, res, next);
 });
 
+exports.listPopularGames = catchAsyncErrors(async (req, res, next) => {
+  const { offset, limit, results } = await getMostPopularGames({
+    offset: req.query.offset,
+    limit: req.query.limit,
+  });
+
+  const normalizedResults = results
+    .filter((item) => String(item?.type || "").toLowerCase() === "game")
+    .map((item) => ({
+      position: Number(item?.position) || null,
+      id: item?.id || null,
+      slug: item?.slug || null,
+      title: item?.title || null,
+      type: item?.type || null,
+      mature: Boolean(item?.mature),
+      count: Number(item?.count) || 0,
+    }));
+
+  res.status(200).json({
+    status: "success",
+    source: "itad",
+    metric: "popular",
+    meta: {
+      offset,
+      limit,
+      item_count: normalizedResults.length,
+    },
+    results: normalizedResults,
+  });
+});
+
 exports.suggestProducts = catchAsyncErrors(async (req, res, next) => {
   const searchText = String(req.query.q || "").trim();
   if (!searchText) {
@@ -756,7 +797,6 @@ exports.suggestProducts = catchAsyncErrors(async (req, res, next) => {
   });
 });
 
-const { getOfficialDealForTitle } = require("../utils/itadClient");
 const { getShopIdsForPlatform } = require("../utils/platforms");
 
 exports.getProduct = catchAsyncErrors(async (req, res, next) => {
