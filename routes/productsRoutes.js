@@ -21,11 +21,16 @@ router
   .get(requireDbReady({ dependency: "products catalog" }), productsControllers.listNewGames);
 
 router
+  .route("/ganraGames")
+  .get(requireDbReady({ dependency: "products catalog" }), productsControllers.listGanraGames);
+
+router
   .route("/gift-cards")
   .get(
     requireDbReady({ dependency: "products catalog" }),
     productsControllers.listGiftCards
   );
+
 router.route("/popular-games").get(productsControllers.listPopularGames);
 
 router.route("/ads").get(adsControllers.getAds);

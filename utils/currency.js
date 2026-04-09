@@ -8,6 +8,33 @@ const fxCache = new Map(); // key: "IQD->EUR" -> { ts, rate }
 const ccCache = new Map(); // key: "NL"      -> { ts, code: "EUR" }
 
 // ---------- helpers ----------
+function parseEnvBool(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  return ["1", "true", "yes", "on"].includes(normalized);
+}
+
+function fixedPricingConfig() {
+  const forcedPricing = parseEnvBool(process.env.FORCE_FIXED_PRICING);
+  const forcedCountryCode = String(process.env.FORCED_COUNTRY_CODE || "IQ")
+    .trim()
+    .toUpperCase();
+  const forcedCurrencyCode = String(process.env.FORCED_CURRENCY_CODE || "IQD")
+    .trim()
+    .toUpperCase();
+
+  return {
+    forcedPricing,
+    forcedCountryCode: /^[A-Z]{2}$/.test(forcedCountryCode)
+      ? forcedCountryCode
+      : "IQ",
+    forcedCurrencyCode: /^[A-Z]{3}$/.test(forcedCurrencyCode)
+      ? forcedCurrencyCode
+      : "IQD",
+  };
+}
+
 function cacheGet(map, key, ttl) {
   const v = map.get(key);
   if (!v) return null;
@@ -97,7 +124,7 @@ async function currencyForCountry(countryCode) {
 // ---------- FX: robust IQD -> target using free sources (no keys) ----------
 async function getRateIQDTo(targetCurrency) {
   const sym = targetCurrency.toUpperCase();
-  if (sym === "IQD") return 1;
+  if (sym === "IQD") return 1 && console.log("IQD");
 
   const key = `IQD->${sym}`;
   const cached = cacheGet(fxCache, key, FX_TTL_MS);
@@ -170,35 +197,36 @@ async function getRateIQDTo(targetCurrency) {
 // ---------- main: convert IQD using IP (with overrides) ----------
 /**
  * Convert an IQD amount based on requester location (by IP).
- * Override with ?currency=USD or header x-currency: USD
+ * Query (?currency=) and header (x-currency) currency overrides apply only when
+ * fixed pricing is off. With FORCE_FIXED_PRICING enabled, they are ignored in favor
+ * of the forced geo/currency configuration.
  *
  * @param {import('express').Request} req
  * @param {number} iqdAmount
  * @returns {Promise<{ amountIQD:number, currency:string, rate:number, amount:number, formatted:string, countryCode:string, ipUsed:string }>}
  */
 async function convertFromIQD(req, iqdAmount) {
-  const override = (req.query?.currency || req.headers["x-currency"] || "")
-    .toString()
-    .trim()
-    .toUpperCase();
-  let target = /^[A-Z]{3}$/.test(override) ? override : null;
-  console.log(target);
-  console.log("0");
+  const cfg = fixedPricingConfig();
+  let target = null;
+  if (!cfg.forcedPricing) {
+    const override = (req.query?.currency || req.headers["x-currency"] || "")
+      .toString()
+      .trim()
+      .toUpperCase();
+    target = /^[A-Z]{3}$/.test(override) ? override : null;
+  }
   const ip = pickClientIp(req);
-  const geo = await geolocateByIp(ip);
+  const geo = cfg.forcedPricing
+    ? { countryCode: cfg.forcedCountryCode, currency: cfg.forcedCurrencyCode }
+    : await geolocateByIp(ip);
   const countryCode = geo.countryCode;
 
   if (!target) {
-    console.log(target);
-    console.log("1");
-
     target = geo.currency || (await currencyForCountry(countryCode)) || "IQD";
   }
 
   // Short-circuit if we ended up with IQD
   if (target === "IQD") {
-    console.log(target);
-
     return {
       amountIQD: iqdAmount,
       currency: "IQD",
@@ -207,6 +235,7 @@ async function convertFromIQD(req, iqdAmount) {
       formatted: safeFormat(iqdAmount, "IQD"),
       countryCode,
       ipUsed: ip,
+      forcedPricing: cfg.forcedPricing,
     };
   }
 
@@ -223,6 +252,7 @@ async function convertFromIQD(req, iqdAmount) {
       formatted: safeFormat(iqdAmount, "IQD"),
       countryCode,
       ipUsed: ip,
+      forcedPricing: cfg.forcedPricing,
       fxFallback: true,
       fxError: e.message,
       wantedCurrency: target,
@@ -238,6 +268,7 @@ async function convertFromIQD(req, iqdAmount) {
     formatted: safeFormat(amount, target),
     countryCode,
     ipUsed: ip,
+    forcedPricing: cfg.forcedPricing,
   };
 }
 
@@ -253,4 +284,4 @@ function safeFormat(amount, currency) {
   }
 }
 
-module.exports = { convertFromIQD };
+module.exports = { convertFromIQD, fixedPricingConfig };

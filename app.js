@@ -3,6 +3,8 @@ const exp = require("express");
 const dashboardRoutes = require("./routes/dashboardRoutes");
 const orderRoutes = require("./routes/orderRoutes");
 const productsRouter = require("./routes/productsRoutes");
+const articlesRouter = require("./routes/articlesRoutes");
+const requireDbReady = require("./utils/requireDbReady");
 const coupon = require("./routes/coupon");
 // Import new routes for Kinguin sync and local catalog
 const syncRoutes = require("./routes/syncRoutes");
@@ -35,8 +37,8 @@ const limiter = rateLimit({
 // app.use('/api', limiter)
 app.use(helmet());
 
-app.use(bodyParser.json());
-app.use(exp.json({ limit: "10Kb" }));
+app.use(bodyParser.json({ limit: "1mb" }));
+app.use(exp.json({ limit: "1mb" }));
 
 app.use(mongoSanitize());
 app.use(xss());
@@ -214,7 +216,11 @@ app.use("/api/v1/users", userRoutes);
 app.use("/api/v1/dashboard", dashboardRoutes);
 app.use("/api/v1/orders", orderRoutes);
 app.use("/api/v1/products", productsRouter);
-
+app.use(
+  "/api/v1/articles",
+  requireDbReady({ dependency: "articles" }),
+  articlesRouter
+);
 
 // Mount webhooks for Kinguin events
 app.use("/webhooks", webhooks);

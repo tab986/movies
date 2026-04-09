@@ -10,6 +10,7 @@ const {
 } = require("../utils/imageUploadMiddleware");
 const parseJsonBody = require("../utils/parseJsonBodyMiddleware");
 const requireDbReady = require("../utils/requireDbReady");
+const articleController = require("../controllers/articleController");
 
 const multer = require("multer");
 const {
@@ -31,6 +32,18 @@ router
 
 router.use(authControllers.protect);
 router.use(authControllers.onlyPermission("admin"));
+
+router
+  .route("/articles")
+  .get(requireDbReady({ dependency: "articles" }), articleController.listAdmin)
+  .post(requireDbReady({ dependency: "articles" }), articleController.create);
+
+router
+  .route("/articles/:id")
+  .get(requireDbReady({ dependency: "articles" }), articleController.getById)
+  .patch(requireDbReady({ dependency: "articles" }), articleController.update)
+  .delete(requireDbReady({ dependency: "articles" }), articleController.delete);
+
 router
   .route("/stats")
   .get(

@@ -24,6 +24,7 @@ A Node.js/Express backend for an Iraqi e-shop selling digital game keys, gift ca
    - [reviewsModel.js](#reviewsmodeljs)
    - [SyncState.js](#syncstatejs)
    - [PhysicalProduct.js & PhysicalOrder.js](#physicalproductjs--physicalorderjs)
+   - [Article.js (post-models)](#articlejs-post-models)
 4. [Controllers](#controllers)
    - [authControllers.js](#authcontrollersjs)
    - [orderController.js](#ordercontrollerjs)
@@ -38,13 +39,16 @@ A Node.js/Express backend for an Iraqi e-shop selling digital game keys, gift ca
    - [userDashboardController.js](#userdashboardcontrollerjs)
    - [userProfileControllers.js](#userprofilecontrollersjs)
    - [errorControllers.js](#errorcontrollersjs)
+   - [articleController.js](#articlecontrollerjs)
 5. [Routes (API Endpoints)](#routes)
    - [userRoutes.js](#userroutesjs)
    - [orderRoutes.js](#orderroutesjs)
    - [productsRoutes.js](#productsroutesjs)
+   - [articlesRoutes.js](#articlesroutesjs)
    - [dashboardRoutes.js](#dashboardroutesjs)
    - [syncRoutes.js](#syncroutesjs)
    - [kinguinCacheRoutes.js](#kinguincacheroutesjs)
+   - [coupon.js (routes)](#couponjs-routes)
    - [sellerRoutes.js](#sellerroutesjs)
    - [webhooks.js](#webhooksjs)
 6. [Workers (Background Jobs)](#workers)
@@ -88,17 +92,23 @@ game-wise-backend-v3/
 ├── controllers/               # Business logic for each feature
 │   ├── authControllers.js     # Signup, login, JWT, OTP, password reset
 │   ├── orderController.js     # Checkout, payment callback, key delivery
-│   ├── productControllers.js  # Product listing, search, price comparison
+│   ├── productControllers.js  # Product listing, ganraGames compact, gift-cards, ITAD popular
 │   ├── syncController.js      # Triggers full import
 │   ├── statsController.js     # Dashboard analytics and stats
 │   ├── homeController.js      # Homepage content management
 │   ├── storeController.js     # Store/merchant CRUD
 │   ├── adsController.js       # Advertisement CRUD
+│   ├── articleController.js   # CMS articles (public + admin)
 │   ├── tagsController.js      # Tag management
 │   ├── userControllers.js     # Admin user management
 │   ├── userDashboardController.js  # User profile (admin view)
 │   ├── userProfileControllers.js   # User profile (self-service)
 │   └── errorControllers.js    # Global error handler
+│
+├── post-models/               # Sequelize models (PostgreSQL)
+│   ├── Article.js             # CMS articles (blog/content)
+│   ├── KinguinProduct.js      # Cached Kinguin catalog
+│   └── ...                    # Other Sequelize models
 │
 ├── models/                    # Mongoose schemas
 │   ├── userModel.js           # User accounts (phone auth, roles)
@@ -118,10 +128,12 @@ game-wise-backend-v3/
 │   ├── userRoutes.js          # /api/v1/users
 │   ├── orderRoutes.js         # /api/v1/orders
 │   ├── productsRoutes.js      # /api/v1/products
+│   ├── articlesRoutes.js      # /api/v1/articles (public CMS reads)
 │   ├── dashboardRoutes.js     # /api/v1/dashboard
 │   ├── syncRoutes.js          # /api/v1/sync
 │   ├── kinguinCacheRoutes.js  # /api/v1/catalog
-│   ├── sellerRoutes.js        # /api/v1/seller
+│   ├── coupon.js              # /api/v1/coupon (Postgres coupons)
+│   ├── sellerRoutes.js        # /api/v1/seller (optional / legacy)
 │   └── webhooks.js            # /webhooks/kinguin/*
 │
 ├── worker/                    # Background sync workers
@@ -191,67 +203,39 @@ Line 34-41: Catches unhandled promise rejections (e.g., DB connection failures).
 
 Configures the Express application: security, middleware, and route mounting.
 
-```
-Line 1-11:  Imports all route files and dependencies.
+**Security and parsing**
 
-Line 15-16: Imports security packages:
-            - express-rate-limit: Limits requests per IP
-            - helmet: Sets security HTTP headers
-            - express-mongo-sanitize: Prevents MongoDB injection attacks
-            - xss-clean: Sanitizes user input against XSS
-            - hpp: Prevents HTTP parameter pollution
-            - cors: Enables Cross-Origin Resource Sharing
+- `helmet`, `express-mongo-sanitize`, `xss-clean`, `hpp`, `cors` (wide open `origin: *`; `credentials` must stay `false` with `*`).
+- JSON body limit **1mb** (`bodyParser.json` + `express.json`).
+- Rate limiter: **10,000** requests per IP per hour (applied to routes registered **after** the limiter middleware).
+- `trust proxy` set for reverse proxies (e.g. Render, Cloudflare).
 
-Line 24:    Creates the Express app instance.
+**Top-level HTTP endpoints (defined on `app` before routers)**
 
-Line 27-31: Rate limiter config: max 10,000 requests per IP per hour.
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/` | Smoke test: `{ "jason": "working" }` |
+| GET | `/healthz` | Liveness: `{ "status": "ok" }` |
+| GET | `/api/v1/cloudflare/stats` | Cloudflare GraphQL analytics (`?from`, `?to`); **60s** in-memory cache; needs `CF_ZONE_ID`, `CF_API_TOKEN` |
+| GET | `/api/cloudflare/last24h` | Same stats helper narrowed to the last 24 hours |
 
-Line 35:    helmet() adds security headers (X-Content-Type-Options, etc.)
+**Mounted API groups (order matters: sync and coupon sit *before* the global rate limiter)**
 
-Line 37-38: JSON body parsing. Accepts JSON payloads up to 10KB.
+- `/api/v1/coupon` — Coupon create/delete/apply and coupon-user listings (`routes/coupon.js`).
+- `/api/v1/sync` — Sync profile, delta run, import, reconcile (`routes/syncRoutes.js`).
+- *(rate limiter applies here)*
+- `/api/v1/users` — Auth and profiles.
+- `/api/v1/dashboard` — Admin dashboard (JWT + admin role on protected routes).
+- `/api/v1/orders` — Checkout and orders.
+- `/api/v1/products` — Public product catalog (`routes/productsRoutes.js`).
+- `/api/v1/articles` — Published articles only; mounted with `requireDbReady({ dependency: "articles" })`.
+- `/webhooks` — Kinguin webhooks (secret header, not JWT).
+- `/api/v1/catalog` — Read-only cached catalog list/detail (`routes/kinguinCacheRoutes.js`).
 
-Line 40:    mongoSanitize() strips $ and . from user input to prevent
-            MongoDB query injection (e.g., { "$gt": "" } in login).
+**404 / errors**
 
-Line 41:    xss() sanitizes HTML in user input to prevent script injection.
-
-Line 42:    hpp() cleans up duplicate query parameters.
-
-Line 48-54: CORS configuration: allows requests from any origin (*).
-            All HTTP methods allowed (GET, POST, PUT, DELETE, PATCH, OPTIONS).
-
-Line 57:    Trusts proxy headers (X-Forwarded-For) for correct client IP detection.
-            Important when running behind Render/Cloudflare.
-
-Line 60:    Serves static files from the public/ directory (uploaded images).
-
-Line 62-65: Health check endpoint: GET / returns { jason: "working" }.
-
-Line 74-76: In-memory cache for Cloudflare stats (60 second TTL).
-
-Line 83-190: GET /api/v1/cloudflare/stats
-             Fetches website analytics from Cloudflare GraphQL API.
-             Returns daily requests, unique visitors, bytes, cached data, threats.
-             Supports date range filtering via ?from and ?to query params.
-             Defaults to last 7 days. Results are cached for 60 seconds.
-
-Line 201:   Mounts sync routes at /api/v1/sync (BEFORE rate limiter).
-            This ensures sync operations are not rate-limited.
-
-Line 203:   Applies rate limiter to all routes below this line.
-
-Line 205-214: Mounts all route groups:
-              - /api/v1/users      → User auth and profiles
-              - /api/v1/dashboard  → Admin dashboard
-              - /api/v1/orders     → Order management
-              - /api/v1/products   → Product catalog
-              - /webhooks          → Kinguin webhooks
-              - /api/v1/catalog    → Cached product catalog
-
-Line 216-218: 404 handler: any unmatched route returns "can't find {url}".
-
-Line 220:   Global error handler middleware (errorControllers).
-```
+- Unmatched routes → `AppError` 404 (`can't find {url}`).
+- Global handler: `errorControllers`.
 
 ---
 
@@ -546,6 +530,27 @@ SyncState schema:
 
 Both files are **entirely commented out**. They were intended for physical product sales (non-digital) with seller/admin management but are not currently active.
 
+### Article.js (post-models)
+
+Sequelize model for **CMS articles** (storefront content, help pages, blog-style posts). Stored in PostgreSQL; table name `articles`.
+
+```
+Fields:
+  id               (UUID, PK)        — Primary key
+  slug             (String, unique)  — URL segment (unique; collisions get -2, -3, …)
+  title            (String)          — Headline
+  excerpt          (TEXT, optional)  — Short preview
+  body             (TEXT)            — Full content (HTML or markdown as stored)
+  status           (ENUM)            — "draft" or "published" (default: draft)
+  publishedAt      (DATE, optional)  — Set when published (or on first publish)
+  createdAt/updatedAt                 — Sequelize timestamps
+
+Indexes:
+  (status, publishedAt)              — Efficient public listing of published posts
+```
+
+Public API only returns rows with `status: "published"`. Admin dashboard can list and edit drafts.
+
 ---
 
 ## Controllers
@@ -663,7 +668,7 @@ getOrder (GET /api/v1/orders/:id)
 
 ### productControllers.js
 
-Handles product listing, search, filtering, and price comparison with official stores.
+Handles product listing, search, filtering, and price comparison with official stores. Catalog reads use **Sequelize** against PostgreSQL table `kinguin_products` (`post-models/KinguinProduct.js`), not MongoDB.
 
 ```
 normStr(s)
@@ -674,40 +679,42 @@ normalizePlatform(p)
   Examples: "Steam" → "pc steam", "Uplay" → "pc ubisoft connect"
 
 buildListQuery(qs)
-  Builds a MongoDB query from URL query parameters.
-  Supported filters:
-    platform       — Filter by platform (normalized)
-    regionId       — Filter by region
-    releaseDate    — Filter by release date range
-    publishers     — Filter by publisher name
-    developers     — Filter by developer name
-    genres         — Filter by genre (case-insensitive regex)
-    tags           — Filter by ALL specified tags
-    priceFrom/priceTo — Filter by IQD price range
-    isAd           — Filter ad products
-    metacriticScore — Filter by Metacritic rating range
-    q              — Text search on name (case-insensitive)
-  Always excludes hidden and out-of-stock products.
+  Builds a Sequelize WHERE (JSONB on `remote`, `derived`, `overrides`, `flags`) from query parameters.
+  Supported filters include:
+    platform, regionId, releaseDate / releaseDateFrom / releaseDateTo
+    publishers, developers, genres, tags
+    priceFrom, priceTo, isAd, isCard, metacriticScore / range, q (name search)
+  Always excludes hidden and out-of-stock products (see NOT_HIDDEN_SQL / IN_STOCK_SQL).
 
 listProducts (GET /api/v1/products)
-  1. Builds query from URL params using buildListQuery
-  2. Applies sorting (priceMin, updatedAt, name) and pagination
-  3. Fetches matching products from KinguinProduct collection
-  4. Converts prices from IQD to user's currency (via IP detection)
-  5. For each product, checks if ITAD price data needs refreshing (48h cache)
-  6. Batches ITAD lookups for stale items
-  7. Returns products with converted prices and official store comparison
+  1. buildListQuery + pagination and sort
+  2. Loads rows from KinguinProduct (Postgres)
+  3. IQD → visitor currency via convertFromIQD (IP / config)
+  4. Optional batch ITAD refresh for official-store pricing (skipped when `q` search is used)
+  5. Large JSON payload per item (includes `remote` for debugging)
+
+listGiftCards (GET /api/v1/products/gift-cards)
+  Sets isCard=true and delegates to listProducts.
+
+listGanraGames (GET /api/v1/products/ganraGames)
+  Requires genres. Same WHERE as listProducts; **no** ITAD batch refresh.
+  Response items: kinguinId, name, genres, image, currency, price, priceMinIQD, priceFormatted, flags.
+
+listNewGames (GET /api/v1/products/new-games)
+  Defaults release window and sort, then delegates to listProducts.
+
+listPopularGames (GET /api/v1/products/popular-games)
+  Proxies ITAD popularity data (getMostPopularGames); not a SQL catalog query.
 
 getProduct (GET /api/v1/products/:kinguinId)
-  1. Finds product by kinguinId
+  1. Finds product by numeric id
   2. Applies overrides (custom name, description, images)
   3. Converts price to user's currency
   4. Refreshes ITAD official store price if older than 48 hours
-  5. Hides official store price if our price is cheaper
-  6. Returns full product details
+  5. Returns full product details
 
-patchOverrides (PATCH /api/v1/products/:kinguinId/overrides)
-  Admin endpoint to customize product display.
+patchOverrides (PATCH /api/v1/dashboard/products/:kinguinId/overrides)
+  Admin (dashboard) endpoint to customize product display.
   Can override: name, description, images, coverImage, isAd flag.
   Overrides persist across syncs (not overwritten by Kinguin data).
 ```
@@ -847,6 +854,20 @@ In production:  Returns user-friendly messages for known errors:
   - Unknown errors  → "Something went wrong" (500)
 ```
 
+### articleController.js
+
+CMS articles: **public** handlers (published-only listing and by-slug) and **admin** CRUD (all statuses). Uses `catchAsyncErrors`, `AppError`, and helpers `slugify` / `resolveUniqueSlug` for unique slugs.
+
+```
+listPublished     — GET (public): paginated published articles (?page, ?limit; limit max 50)
+getPublishedBySlug — GET (public): one published article by slug (404 if missing)
+listAdmin         — GET (admin): all articles, newest updatedAt first
+getById           — GET (admin): by UUID
+create            — POST (admin): requires title + body; optional slug, excerpt, status, publishedAt
+update            — PATCH (admin): partial fields; slug uniqueness on change; publishedAt rules on publish
+delete            — DELETE (admin): 204 on success
+```
+
 ---
 
 ## Routes
@@ -886,14 +907,31 @@ In production:  Returns user-friendly messages for known errors:
 
 | Method | Path | Auth | Handler | Description |
 |--------|------|------|---------|-------------|
-| GET | `/` | Public | `productsControllers.listProducts` | List/search products |
+| GET | `/` | Public | `productsControllers.listProducts` | List/search products (Postgres `kinguin_products`; filters via `buildListQuery`) |
 | GET | `/search` | Public | `productsControllers.listProducts` | Temporary alias for legacy frontend search calls |
 | GET | `/suggest` | Public | `productsControllers.suggestProducts` | Lightweight autocomplete suggestions for typeahead UX |
+| GET | `/new-games` | Public | `productsControllers.listNewGames` | Recent releases (default sort `releaseDate` desc, last 8 years window unless overridden) |
+| GET | `/ganraGames` | Public | `productsControllers.listGanraGames` | **Compact** genre listing: `genres` **required**; returns name, price, genres, image, `flags`; same filters as `/` except response shape |
+| GET | `/gift-cards` | Public | `productsControllers.listGiftCards` | Same as `/` with `isCard=true` (gift cards / prepaid) |
+| GET | `/popular-games` | Public | `productsControllers.listPopularGames` | ITAD “popular games” feed (external API; not the local DB catalog) |
 | GET | `/ads` | Public | `adsControllers.getAds` | List advertisements |
 | GET | `/ads/:id` | Public | `adsControllers.getAd` | Get single ad |
 | GET | `/:kinguinId` (numeric only) | Public | `productsControllers.getProduct` | Get product details |
 
 Compatibility note: `/api/v1/products/search` (full listing alias) and `/api/v1/products/suggest` (autocomplete endpoint) are both kept during frontend migration. Keep `/search` for legacy clients and migrate typeahead flows to `/suggest`.
+
+**`ganraGames` query params:** `genres` (comma-separated, **required**). Other filters match the main list (`page`, `limit`, `q`, `regionId`, `priceFrom`, `priceTo`, `tags`, `sortBy`, `sortType`, etc.).
+
+### articlesRoutes.js
+
+**Base path:** `/api/v1/articles` (mounted in `app.js` with `requireDbReady({ dependency: "articles" })`).
+
+| Method | Path | Auth | Handler | Description |
+|--------|------|------|---------|-------------|
+| GET | `/` | Public | `articleController.listPublished` | Paginated **published** articles (`?page`, `?limit`) |
+| GET | `/:slug` | Public | `articleController.getPublishedBySlug` | Single **published** article by slug |
+
+No JWT required. Drafts are never exposed here.
 
 ### dashboardRoutes.js
 
@@ -922,6 +960,13 @@ Compatibility note: `/api/v1/products/search` (full listing alias) and `/api/v1/
 | GET | `/ads/:adId` | Admin | Ads CRUD | Get ad |
 | DELETE | `/ads/:adId` | Admin | Ads CRUD | Delete ad |
 | PATCH | `/ads/:adId` | Admin | Image + Ads CRUD | Update ad |
+| GET | `/articles` | Admin | `articleController.listAdmin` | List all articles (drafts + published) |
+| POST | `/articles` | Admin | `articleController.create` | Create article |
+| GET | `/articles/:id` | Admin | `articleController.getById` | Get article by UUID |
+| PATCH | `/articles/:id` | Admin | `articleController.update` | Update article |
+| DELETE | `/articles/:id` | Admin | `articleController.delete` | Delete article |
+
+Article routes use `requireDbReady({ dependency: "articles" })` like other catalog-backed dashboard endpoints.
 
 ### syncRoutes.js
 
@@ -944,9 +989,23 @@ Compatibility note: `/api/v1/products/search` (full listing alias) and `/api/v1/
 | GET | `/` | Public | Inline | Paginated catalog with filters |
 | GET | `/:kinguinId` | Public | Inline | Get single cached product |
 
+### coupon.js (routes)
+
+**Base path:** `/api/v1/coupon` (Postgres `Coupon` model in `post-models`; helpers in `utils/coupon.js`).
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/create` | None in router | Create coupon (`type`, `value`, `expiresAt` in body) |
+| DELETE | `/delete` | None in router | Delete coupon by code (`req.body.code`) |
+| POST | `/apply` | None in router | Validate/apply coupon (`code`, `cartValue`, `userId`) |
+| GET | `/:code/users` | None in router | List users associated with a coupon code |
+| GET | `/:code/users/count` | None in router | User count for a coupon |
+
+Protect `/create` and `/delete` in production (admin-only or internal tooling).
+
 ### sellerRoutes.js
 
-**Base path:** `/api/v1/seller`
+**Base path:** `/api/v1/seller` (router exists in `routes/sellerRoutes.js` but is **not** mounted in `app.js` today—enable by adding `app.use("/api/v1/seller", sellerRoutes)` when needed).
 
 | Method | Path | Auth | Handler | Description |
 |--------|------|------|---------|-------------|
@@ -1300,6 +1359,11 @@ gw-sync-reconcile:
 MONGODB_URI              — MongoDB connection string
 MONGODB_DB               — Database name
 
+# PostgreSQL (Sequelize / post-models: catalog, CMS articles, orders)
+POSTGRES_URI or DATABASE_URL — Connection URI (or POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD)
+DB_INIT_ON_STARTUP       — When "true", runs sequelize.sync() on startup (creates tables such as `articles`, `kinguin_products`)
+EXIT_ON_STARTUP_DB_FAILURE — Optional: exit process if DB schema is not ready
+
 # Authentication
 JWT_SECRET               — Secret for signing JWT tokens
 JWT_EXPIRES_IN           — Token expiration (e.g., "90d")
@@ -1351,6 +1415,15 @@ IQD_MARKUP               — Fixed markup in IQD (default: 5800)
 # Webhooks
 WEBHOOK_SECRET           — Secret for Kinguin webhook verification
 ```
+
+### Example deployment (optional)
+
+A typical hosted instance exposes:
+
+- `GET /` → `{ "jason": "working" }` (smoke test)
+- `GET /healthz` → `{ "status": "ok" }`
+
+Example staging host used for integration checks: `https://stage-backend.gamewiseiq.com` (replace with your own production URL in real docs).
 
 ---
 
@@ -1418,7 +1491,7 @@ INITIAL SETUP (run once):
   → Fetches ALL products from Kinguin (thousands of pages)
   → Filters by region, platform, genre, name, price
   → Converts EUR → IQD
-  → Stores in KinguinProduct collection
+  → Stores in PostgreSQL `kinguin_products` (and related sync state)
 
 ONGOING SYNC (every 2 minutes via Render cron):
   POST /api/v1/sync/run  OR  node worker/deltaSync.js
@@ -1445,7 +1518,7 @@ INTERNAL SCHEDULER (optional):
 
 ## DB Startup Readiness
 
-For Postgres-backed catalog routes (`/api/v1/products`, `/api/v1/catalog`, and catalog-dependent dashboard/order endpoints), startup now enforces schema readiness:
+For Postgres-backed catalog routes (`/api/v1/products`, `/api/v1/catalog`, `/api/v1/articles`, and catalog-dependent dashboard/order endpoints), startup now enforces schema readiness:
 
 - Set `DB_INIT_ON_STARTUP=true` for at least one deployment when bootstrapping a new environment.
 - Startup logs include resolved values for `DB_INIT_ON_STARTUP` and `EXIT_ON_STARTUP_DB_FAILURE`.
@@ -1461,5 +1534,7 @@ npm run validate:kinguin-startup
 Optional endpoint checks can be enabled with:
 
 ```bash
-POST_DEPLOY_BASE_URL=https://your-deployment-url npm run validate:kinguin-startup
+POST_DEPLOY_BASE_URL=https://stage-backend.gamewiseiq.com npm run validate:kinguin-startup
 ```
+
+(Replace with your own API base URL.)
