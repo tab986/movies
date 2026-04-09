@@ -20,6 +20,10 @@ router
   .route("/new-games")
   .get(requireDbReady({ dependency: "products catalog" }), productsControllers.listNewGames);
 
+router
+  .route("/ganraGames")
+  .get(requireDbReady({ dependency: "products catalog" }), productsControllers.listGanraGames);
+
 router.route("/ads").get(adsControllers.getAds);
 router.route("/ads/:id").get(adsControllers.getAd);
 router.get(

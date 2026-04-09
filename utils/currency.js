@@ -124,7 +124,7 @@ async function currencyForCountry(countryCode) {
 // ---------- FX: robust IQD -> target using free sources (no keys) ----------
 async function getRateIQDTo(targetCurrency) {
   const sym = targetCurrency.toUpperCase();
-  if (sym === "IQD") return 1;
+  if (sym === "IQD") return 1 && console.log("IQD");
 
   const key = `IQD->${sym}`;
   const cached = cacheGet(fxCache, key, FX_TTL_MS);

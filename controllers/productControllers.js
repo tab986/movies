@@ -557,6 +557,86 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
   }
 });
 
+/** Compact list by genre(s): name, price, genres, image, flags. Same filters as listProducts except `genres` is required. */
+exports.listGanraGames = catchAsyncErrors(async (req, res, next) => {
+  const genresRaw = String(req.query.genres || "").trim();
+  if (!genresRaw) {
+    return next(new appError("Query parameter 'genres' is required", 400));
+  }
+
+  const { where, page, limit, order } = buildListQuery(req.query);
+  const skip = (page - 1) * limit;
+
+  const [totalFilteredCount, items] = await Promise.all([
+    KinguinProduct.count({ where }),
+    KinguinProduct.findAll({
+      where,
+      order,
+      offset: skip,
+      limit,
+      raw: true,
+    }),
+  ]);
+
+  const truncate2 = (n) => Math.trunc(Number(n) * 100) / 100;
+  const safeFormat = (amount, currency) => {
+    if (amount == null) return null;
+    try {
+      return new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency,
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(amount);
+    } catch {
+      return `${amount.toFixed(2)} ${currency}`;
+    }
+  };
+
+  const fx1 = await convertFromIQD(req, 1);
+  const rate = fx1.fxFallback ? 1 : fx1.rate;
+  const currency = fx1.fxFallback ? "IQD" : fx1.currency;
+
+  const results = items.map((p) => {
+    const priceIQD = p.derived?.priceMin ?? null;
+    const priceConverted = priceIQD != null ? truncate2(priceIQD * rate) : null;
+    const cover = p.remote?.images?.cover;
+    const image =
+      p.overrides?.images?.cover ||
+      (cover && typeof cover === "object" ? cover.url : null) ||
+      (typeof cover === "string" ? cover : null) ||
+      null;
+
+    return {
+      kinguinId: p.id,
+      name: p.overrides?.name || p.remote?.name,
+      genres: Array.isArray(p.remote?.genres) ? p.remote.genres : [],
+      image,
+      currency,
+      priceMinIQD: priceIQD,
+      price: priceConverted,
+      priceFormatted: safeFormat(priceConverted, currency),
+      flags: p.flags && typeof p.flags === "object" ? p.flags : {},
+    };
+  });
+
+  const pageCount = Math.ceil(totalFilteredCount / limit) || 1;
+  const hasMore = page < pageCount;
+
+  res.status(200).json({
+    status: "success",
+    route: "ganraGames",
+    meta: {
+      page,
+      limit,
+      item_count: totalFilteredCount,
+      pageCount,
+      hasMore,
+    },
+    results,
+  });
+});
+
 exports.listNewGames = catchAsyncErrors(async (req, res, next) => {
   const now = new Date();
   const releaseDateFromDate = new Date(
