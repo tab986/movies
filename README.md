@@ -65,6 +65,7 @@ A Node.js/Express backend for an Iraqi e-shop selling digital game keys, gift ca
    - [imageUploadMiddleware.js](#imageuploadmiddlewarejs)
    - [itadClient.js](#itadclientjs)
    - [platforms.js](#platformsjs)
+   - [productSeo.js](#productseojs)
    - [s3Utils.js & deleteR2File.js](#s3utilsjs--deleter2filejs)
    - [deletefiles.js](#deletefilesjs)
    - [parseJsonBodyMiddleware.js](#parsejsonbodymiddlewarejs)
@@ -151,6 +152,7 @@ game-wise-backend-v3/
 │   ├── imageUploadMiddleware.js # Image upload to R2
 │   ├── itadClient.js          # IsThereAnyDeal API client
 │   ├── platforms.js           # Platform normalization
+│   ├── productSeo.js          # SEO meta + sitemap hints for public product JSON
 │   ├── s3Utils.js             # R2/S3 file deletion
 │   ├── deleteR2File.js        # R2 file deletion (duplicate)
 │   ├── deletefiles.js         # Local file deletion
@@ -692,13 +694,14 @@ listProducts (GET /api/v1/products)
   3. IQD → visitor currency via convertFromIQD (IP / config)
   4. Optional batch ITAD refresh for official-store pricing (skipped when `q` search is used)
   5. Large JSON payload per item (includes `remote` for debugging)
+  6. Each item includes `seo`: `{ lastModified, path }` for sitemap `lastmod` (ISO 8601 from row `updatedAt`) and a stable storefront path (`/games/:kinguinId`), without repeating full descriptions on list rows.
 
 listGiftCards (GET /api/v1/products/gift-cards)
   Sets isCard=true and delegates to listProducts.
 
 listGanraGames (GET /api/v1/products/ganraGames)
   Requires genres. Same WHERE as listProducts; **no** ITAD batch refresh.
-  Response items: kinguinId, name, genres, image, currency, price, priceMinIQD, priceFormatted, flags.
+  Response items: kinguinId, name, genres, image, currency, price, priceMinIQD, priceFormatted, flags, and `seo` (same shape as listProducts).
 
 listNewGames (GET /api/v1/products/new-games)
   Defaults release window and sort, then delegates to listProducts.
@@ -712,6 +715,7 @@ getProduct (GET /api/v1/products/:kinguinId)
   3. Converts price to user's currency
   4. Refreshes ITAD official store price if older than 48 hours
   5. Returns full product details
+  6. Response `data.seo` (from `utils/productSeo.js`): `title`, `description` (HTML stripped, ~160 chars), cover `image` URL, `robots` (`index, follow`), `path` (`/games/:kinguinId`), `canonicalUrl` (absolute URL when `STOREFRONT_PUBLIC_URL` is set, otherwise `null`)
 
 patchOverrides (PATCH /api/v1/dashboard/products/:kinguinId/overrides)
   Admin (dashboard) endpoint to customize product display.
@@ -917,6 +921,8 @@ delete            — DELETE (admin): 204 on success
 | GET | `/ads` | Public | `adsControllers.getAds` | List advertisements |
 | GET | `/ads/:id` | Public | `adsControllers.getAd` | Get single ad |
 | GET | `/:kinguinId` (numeric only) | Public | `productsControllers.getProduct` | Get product details |
+
+**SEO:** Main catalog list endpoints (`/`, `/search`, `/new-games`, `/gift-cards`, `/ganraGames`) attach per-item `seo` (`lastModified`, `path`) for sitemap generation; detail `GET /:kinguinId` includes full `data.seo` (title, description, image, robots, `path`, optional `canonicalUrl` when `STOREFRONT_PUBLIC_URL` is set). `/suggest` does not include `seo`. Implemented in [`utils/productSeo.js`](#productseojs).
 
 Compatibility note: `/api/v1/products/search` (full listing alias) and `/api/v1/products/suggest` (autocomplete endpoint) are both kept during frontend migration. Keep `/search` for legacy clients and migrate typeahead flows to `/suggest`.
 
@@ -1273,6 +1279,19 @@ getShopIdsForPlatform() — Returns ITAD shop IDs for a platform
   Example: "PC Steam" → [61], "PC Epic Games" → [16]
 ```
 
+### productSeo.js
+
+Builds **SEO** and **sitemap-oriented** fields for public product JSON (`GET /api/v1/products`, `GET /api/v1/products/ganraGames`, `GET /api/v1/products/:kinguinId`). No new routes; helpers are used from `productControllers.js`.
+
+```
+stripHtmlToText / truncateMetaDescription — Plain-text meta description from HTML
+resolveCoverImageUrl — Cover image URL (overrides vs remote.images.cover)
+buildProductSeoDetail — Full `seo` object on product detail
+buildProductSeoListItem — `{ lastModified, path }` on each list row
+```
+
+Optional env: **`STOREFRONT_PUBLIC_URL`** — public site origin (no trailing slash required); when set, detail responses include absolute `seo.canonicalUrl`. If unset, `canonicalUrl` is `null` and clients may join `path` with their own base URL.
+
 ### s3Utils.js & deleteR2File.js
 
 Delete files from Cloudflare R2 storage. Both files export the same function.
@@ -1411,6 +1430,9 @@ ENABLE_INTERNAL_SCHEDULER — "true" to enable internal cron
 # Pricing
 EUR_TO_IQD               — EUR to IQD exchange rate (default: 1535)
 IQD_MARKUP               — Fixed markup in IQD (default: 5800)
+
+# Storefront / SEO (optional)
+STOREFRONT_PUBLIC_URL    — Public website origin for product `seo.canonicalUrl` (e.g. https://yoursite.com). Omit trailing slash. If unset, `canonicalUrl` is null and the frontend can build absolute URLs from `seo.path`.
 
 # Webhooks
 WEBHOOK_SECRET           — Secret for Kinguin webhook verification
