@@ -47,7 +47,7 @@ module.exports = (sequelize, DataTypes) => {
       role: {
         type: DataTypes.STRING,
         defaultValue: "user",
-        validate: { isIn: [["user", "admin", "seller"]] },
+        validate: { isIn: [["user", "admin", "seller", "merchant"]] },
       },
       password: { type: DataTypes.STRING, allowNull: false },
       passwordChangedAt: DataTypes.DATE,
@@ -81,6 +81,15 @@ module.exports = (sequelize, DataTypes) => {
       new Date(this.passwordChangedAt).getTime() / 1000
     );
     return changedAtSeconds > jwtTimestamp;
+  };
+
+  Users.associate = (models) => {
+    if (models.Merchant) {
+      Users.hasOne(models.Merchant, {
+        foreignKey: "userId",
+        as: "merchantProfile",
+      });
+    }
   };
 
   return Users;

@@ -1,6 +1,6 @@
 const jwt = require("jsonwebtoken");
 const { promisify } = require("util");
-const { Users } = require("../post-models");
+const { Users, Merchant, sequelize } = require("../post-models");
 const catchAsync = require("../utils/catchAsyncErrors");
 const AppError = require("../utils/appError");
 const APIFeatures = require("../utils/APIFeatures");
@@ -95,15 +95,50 @@ exports.signup = (role = "user") =>
       }
     }
 
-    const user = await Users.create({
-      fullName: req.body.fullName,
-      phone: req.body.phone, // ✅ matches schema
-      governorate: req.body.governorate,
-      city: req.body.city,
-      address: req.body.address,
-      password: req.body.password,
-      role, // comes from function arg / controller
-    });
+    let user;
+    if (role === "merchant") {
+      if (!req.body.storeName || String(req.body.storeName).trim() === "") {
+        return next(new AppError("storeName is required for merchant signup", 400));
+      }
+      const transaction = await sequelize.transaction();
+      try {
+        user = await Users.create(
+          {
+            fullName: req.body.fullName,
+            phone: req.body.phone,
+            governorate: req.body.governorate,
+            city: req.body.city,
+            address: req.body.address,
+            password: req.body.password,
+            role,
+          },
+          { transaction }
+        );
+        await Merchant.create(
+          {
+            userId: user.id,
+            storeName: String(req.body.storeName).trim(),
+            status: "active",
+            discountActive: false,
+          },
+          { transaction }
+        );
+        await transaction.commit();
+      } catch (err) {
+        await transaction.rollback();
+        throw err;
+      }
+    } else {
+      user = await Users.create({
+        fullName: req.body.fullName,
+        phone: req.body.phone, // ✅ matches schema
+        governorate: req.body.governorate,
+        city: req.body.city,
+        address: req.body.address,
+        password: req.body.password,
+        role, // comes from function arg / controller
+      });
+    }
 
     const token = createToken(user.id);
     res.cookie("JWT", token, getCookieOptions());
@@ -136,6 +171,11 @@ exports.login = (role = "user") =>
     if (role === "admin") {
       if (user.role !== "admin") {
         return next(new AppError("You do not have admin access", 403));
+      }
+    }
+    if (role === "merchant") {
+      if (user.role !== "merchant") {
+        return next(new AppError("You do not have merchant access", 403));
       }
     }
     res.status(200).json({

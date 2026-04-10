@@ -213,6 +213,9 @@ app.use(limiter);
 
 app.use("/api/v1/users", userRoutes);
 
+const merchantRoutes = require("./routes/merchantRoutes");
+app.use("/api/v1/merchant", merchantRoutes);
+
 app.use("/api/v1/dashboard", dashboardRoutes);
 app.use("/api/v1/orders", orderRoutes);
 app.use("/api/v1/products", productsRouter);

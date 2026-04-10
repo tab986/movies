@@ -126,16 +126,51 @@ router
   .delete(ordersControllers.deleteOrder);
 
 const userDashboardController = require("../controllers/userDashboardController");
+const merchantDashboardController = require("../controllers/merchantDashboardController");
+const merchantController = require("../controllers/merchantController");
+
 router
   .route("/users")
   .get(userDashboardController.getUsersAdmin)
   .post(userDashboardController.createUserAdmin);
 
 router
+  .route("/users/:id/role")
+  .patch(userDashboardController.updateUserRoleAdmin);
+
+router
   .route("/users/:id")
   .get(userDashboardController.getUserAdmin)
   .patch(userDashboardController.updateUserAdmin)
   .delete(userDashboardController.deleteUserAdmin);
+
+router.get(
+  "/merchants/:id/purchase-log",
+  merchantController.getMerchantPurchaseLogAdmin
+);
+router.get(
+  "/merchants/:id/analytics/summary",
+  merchantController.getMerchantAnalyticsSummaryAdmin
+);
+router.get(
+  "/merchants/:id/analytics/most-bought",
+  merchantController.getMerchantMostBoughtAdmin
+);
+
+router
+  .route("/merchants")
+  .get(merchantDashboardController.listMerchants)
+  .post(merchantDashboardController.createMerchant);
+
+router
+  .route("/merchants/:id")
+  .get(merchantDashboardController.getMerchant)
+  .patch(merchantDashboardController.updateMerchant)
+  .delete(merchantDashboardController.deleteMerchant);
+
+router
+  .route("/merchants/:id/discount")
+  .patch(merchantDashboardController.updateMerchantDiscount);
 
 // router.route("/getTotalCustomers").get(statesController.getTotalCustomers);
 // router.route("/getTotalRevenue").get(statesController.getTotalRevenue);

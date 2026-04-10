@@ -227,6 +227,7 @@ Configures the Express application: security, middleware, and route mounting.
 - `/api/v1/sync` — Sync profile, delta run, import, reconcile (`routes/syncRoutes.js`).
 - *(rate limiter applies here)*
 - `/api/v1/users` — Auth and profiles.
+- `/api/v1/merchant` — Merchant signup/login, purchase log, analytics (`routes/merchantRoutes.js`).
 - `/api/v1/dashboard` — Admin dashboard (JWT + admin role on protected routes).
 - `/api/v1/orders` — Checkout and orders.
 - `/api/v1/products` — Public product catalog (`routes/productsRoutes.js`).
@@ -257,7 +258,7 @@ Fields:
   email            (String)          — Email (optional, lowercase)
   isActive         (Boolean)         — Soft delete flag (default: true)
   profileImage     (String)          — URL to profile picture on R2
-  role             (String, enum)    — "user", "admin", or "seller"
+  role             (String, enum)    — "user", "admin", "seller", or "merchant"
   password         (String)          — Hashed password (hidden from queries)
   passwordChangedAt (Date)           — When password was last changed
   passwordResetToken (String)        — Hashed reset token
@@ -894,6 +895,18 @@ delete            — DELETE (admin): 204 on success
 | GET | `/me/details` | JWT | `userProfile.getMyProfileDetails` | Get own profile |
 | DELETE | `/me` | JWT | `userProfile.deleteMe` | Deactivate account |
 
+### merchantRoutes.js
+
+**Base path:** `/api/v1/merchant`
+
+| Method | Path | Auth | Handler | Description |
+|--------|------|------|---------|-------------|
+| POST | `/signup` | Public | `authControllers.signup("merchant")` | Register merchant (requires `storeName`; creates `merchants` profile) |
+| POST | `/login` | Public | `authControllers.login("merchant")` | Login; user must have `role: merchant` |
+| GET | `/purchase-log` | JWT merchant | `merchantController.getMyPurchaseLog` | Paginated purchase log (`?page`, `?limit`, `?from`, `?to`) |
+| GET | `/analytics/summary` | JWT merchant | `merchantController.getMyAnalyticsSummary` | Totals: gain (base IQD), loss/earnings (discount IQD), order/item counts |
+| GET | `/analytics/most-bought` | JWT merchant | `merchantController.getMyMostBoughtItems` | Top products by quantity (`?limit`, `?from`, `?to`) |
+
 ### orderRoutes.js
 
 **Base path:** `/api/v1/orders`
@@ -901,7 +914,7 @@ delete            — DELETE (admin): 204 on success
 | Method | Path | Auth | Handler | Description |
 |--------|------|------|---------|-------------|
 | POST | `/wayl-callback` | Public (Wayl) | `orderCtrl.waylCallback` | Payment webhook from Wayl |
-| POST | `/checkout` | JWT | `orderCtrl.checkout` | Create order and get payment link |
+| POST | `/checkout` | JWT | `orderCtrl.checkout` | Create order and get payment link; merchants with an active discount get automatic IQD discount before coupons; per-line rows go to `merchant_purchase_logs` |
 | GET | `/my` | JWT | `orderCtrl.myOrders` | List my orders |
 | GET | `/:id` | JWT | `orderCtrl.getOrder` | Get order with keys |
 
@@ -1011,11 +1024,21 @@ No JWT required. Drafts are never exposed here.
 | GET | `/orders/:orderId` | Admin | `ordersControllers.getOrder` | Get order |
 | PATCH | `/orders/:orderId` | Admin | `ordersControllers.updateOrder` | Update order |
 | DELETE | `/orders/:orderId` | Admin | `ordersControllers.deleteOrder` | Delete order |
-| GET | `/users` | Admin | User CRUD | List users |
+| GET | `/users` | Admin | User CRUD | List users (`?includeMerchant=true` includes `merchantProfile`) |
 | POST | `/users` | Admin | User CRUD | Create user |
 | GET | `/users/:id` | Admin | User CRUD | Get user |
-| PATCH | `/users/:id` | Admin | User CRUD | Update user |
+| PATCH | `/users/:id/role` | Admin | `userDashboardController.updateUserRoleAdmin` | Change user role (`user/admin/seller/merchant`); promoting to merchant requires `storeName` |
+| PATCH | `/users/:id` | Admin | User CRUD | Update user (role changes are rejected; use `/users/:id/role`) |
 | DELETE | `/users/:id` | Admin | User CRUD | Delete user |
+| GET | `/merchants` | Admin | `merchantDashboardController.listMerchants` | List merchant profiles |
+| POST | `/merchants` | Admin | `merchantDashboardController.createMerchant` | Create user (`role: merchant`) + merchant row |
+| GET | `/merchants/:id` | Admin | `merchantDashboardController.getMerchant` | Get merchant + user |
+| PATCH | `/merchants/:id` | Admin | `merchantDashboardController.updateMerchant` | Update merchant profile |
+| DELETE | `/merchants/:id` | Admin | `merchantDashboardController.deleteMerchant` | Delete merchant row; demote user to `user` |
+| PATCH | `/merchants/:id/discount` | Admin | `merchantDashboardController.updateMerchantDiscount` | Set permanent discount (`percent` or fixed IQD) |
+| GET | `/merchants/:id/purchase-log` | Admin | `merchantController.getMerchantPurchaseLogAdmin` | Merchant purchase log |
+| GET | `/merchants/:id/analytics/summary` | Admin | `merchantController.getMerchantAnalyticsSummaryAdmin` | Merchant analytics summary |
+| GET | `/merchants/:id/analytics/most-bought` | Admin | `merchantController.getMerchantMostBoughtAdmin` | Most-bought items for merchant |
 | GET | `/ads` | Admin | Ads CRUD | List ads |
 | POST | `/ads` | Admin | Image + Ads CRUD | Create ad |
 | GET | `/ads/:adId` | Admin | Ads CRUD | Get ad |

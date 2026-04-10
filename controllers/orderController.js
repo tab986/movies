@@ -1,4 +1,11 @@
-const { Order, KinguinProduct, Coupon, Users } = require("../post-models");
+const {
+  Order,
+  KinguinProduct,
+  Coupon,
+  Users,
+  Merchant,
+  MerchantPurchaseLog,
+} = require("../post-models");
 const axios = require("axios");
 const crypto = require("crypto");
 const factory = require("../utils/handlerFactory");
@@ -9,6 +16,7 @@ const { stat } = require("fs");
 const { fetchKinguinProductById } = require("../lib/kinguinClient");
 const { Op } = require("sequelize");
 const { applyCoupon } = require("../utils/coupon.js");
+const { computeMerchantLineDiscount } = require("../utils/merchantDiscount.js");
 // Wayl config
 const WAYL_AUTH_KEY = process.env.WAYL_AUTH_KEY; // set in your .env
 const WAYL_BASE = process.env.WAYL_BASE || "https://api.thewayl.com/api/v1";
@@ -373,6 +381,42 @@ exports.checkout = async (req, res, next) => {
       }
     }
 
+    const dbUser = await Users.findByPk(userId);
+    let merchantProfile = null;
+    if (dbUser && dbUser.role === "merchant") {
+      merchantProfile = await Merchant.findOne({ where: { userId } });
+    }
+
+    let merchantDiscountTotal = 0;
+    const lineMerchantMeta = [];
+    if (merchantProfile && merchantProfile.status === "active" && orderItems.length > 0) {
+      for (const itm of orderItems) {
+        const { discountAmount, discountType, discountValue } =
+          computeMerchantLineDiscount(
+            itm.unitPrice,
+            itm.quantity,
+            merchantProfile
+          );
+        lineMerchantMeta.push({
+          product: itm.product,
+          quantity: itm.quantity,
+          unitPrice: itm.unitPrice,
+          discountAmount,
+          discountType,
+          discountValue,
+        });
+        merchantDiscountTotal += discountAmount;
+      }
+      total = Math.max(0, total - merchantDiscountTotal);
+    }
+
+    let merchantDiscountType = null;
+    let merchantDiscountValue = null;
+    if (merchantDiscountTotal > 0 && merchantProfile) {
+      merchantDiscountType = merchantProfile.discountType;
+      merchantDiscountValue = merchantProfile.discountValue;
+    }
+
     let discountAmount = 0;
     let appliedCouponCode = null;
     if (couponCode && String(couponCode).trim() !== "") {
@@ -415,6 +459,10 @@ exports.checkout = async (req, res, next) => {
       discount: discountAmount,
       coupon: appliedCouponCode,
       waylReference: waylRef,
+      merchants: merchantProfile ? userId : null,
+      merchantDiscountType,
+      merchantDiscountValue,
+      merchantDiscountAmount: merchantDiscountTotal,
       products: orderItems.map((itm) => ({
         product: String(itm.product.id),
         quantity: itm.quantity,
@@ -424,6 +472,38 @@ exports.checkout = async (req, res, next) => {
     console.log("orderData", orderData);
     
     const order = await Order.create(orderData);
+
+    if (merchantProfile && lineMerchantMeta.length > 0) {
+      for (const line of lineMerchantMeta) {
+        const p = line.product;
+        const lineBase = line.unitPrice * line.quantity;
+        const name =
+          p?.remote?.name ||
+          p?.overrides?.name ||
+          String(p?.id ?? "");
+        const finalUnit =
+          line.quantity > 0
+            ? (lineBase - line.discountAmount) / line.quantity
+            : line.unitPrice;
+        await MerchantPurchaseLog.create({
+          merchantId: merchantProfile.id,
+          merchantUserId: userId,
+          userId,
+          orderId: order.id,
+          productId: String(p.id),
+          productName: name,
+          quantity: line.quantity,
+          baseUnitPriceIQD: line.unitPrice,
+          discountType: line.discountType,
+          discountValue: line.discountValue,
+          discountAmountIQD: line.discountAmount,
+          finalUnitPriceIQD: finalUnit,
+          gainIQD: lineBase,
+          lossIQD: line.discountAmount,
+          earningIQD: line.discountAmount,
+        });
+      }
+    }
 
     // Compose label and image for Wayl. For carts use a generic label and the first
     // product’s cover image; for a single item use its name and cover image.
