@@ -989,6 +989,7 @@ No JWT required. Drafts are never exposed here.
 | GET | `/products/:kinguinId` | Admin | `productsControllers.getProduct` | Get product |
 | PATCH | `/products/:kinguinId/overrides` | Admin | `productsControllers.patchOverrides` | Override product data |
 | GET | `/orders` | Admin | `ordersControllers.getOrders` | List all orders |
+| POST | `/orders/giveaway` | Admin | `ordersControllers.grantGiveawayOrder` | Grant a paid giveaway order to a user and place it on Kinguin |
 | GET | `/orders/:orderId` | Admin | `ordersControllers.getOrder` | Get order |
 | PATCH | `/orders/:orderId` | Admin | `ordersControllers.updateOrder` | Update order |
 | DELETE | `/orders/:orderId` | Admin | `ordersControllers.deleteOrder` | Delete order |
@@ -1009,6 +1010,20 @@ No JWT required. Drafts are never exposed here.
 | DELETE | `/articles/:id` | Admin | `articleController.delete` | Delete article |
 
 Article routes use `requireDbReady({ dependency: "articles" })` like other catalog-backed dashboard endpoints.
+
+`POST /api/v1/dashboard/orders/giveaway` body:
+
+- `userId` (required, UUID): recipient user ID.
+- `productId` (required, number): Kinguin product ID to gift.
+- `qty` (optional, positive integer, default `1`): gifted quantity.
+
+Auth: admin JWT only (`protect` + `onlyPermission("admin")`).
+
+Behavior:
+
+- Creates an order for the target user with `waylPaymentStatus: "paid"` and no Wayl checkout link.
+- Submits the item to Kinguin immediately and stores `kinguinOrderId`.
+- Marks the order `status: "kingwin"` on successful Kinguin placement, so it appears in `GET /api/v1/orders/my` (same status filter as normal paid purchases, and later `completed` when keys are delivered).
 
 ### syncRoutes.js
 

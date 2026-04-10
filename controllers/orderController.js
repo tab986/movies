@@ -1,4 +1,4 @@
-const { Order, KinguinProduct, Coupon } = require("../post-models");
+const { Order, KinguinProduct, Coupon, Users } = require("../post-models");
 const axios = require("axios");
 const crypto = require("crypto");
 const factory = require("../utils/handlerFactory");
@@ -612,6 +612,87 @@ exports.waylCallback = async (req, res, next) => {
 
 exports.submitKinguinOrderByProductId = submitKinguinOrderByProductId;
 exports.prepareKinguinOrderProduct = buildKinguinOrderProduct;
+
+exports.grantGiveawayOrder = async (req, res, next) => {
+  try {
+    const { userId, productId, qty = 1 } = req.body || {};
+
+    if (!userId) {
+      return res
+        .status(400)
+        .json({ status: "fail", message: "userId is required" });
+    }
+    if (!productId) {
+      return res
+        .status(400)
+        .json({ status: "fail", message: "productId is required" });
+    }
+
+    const quantity = Number(qty);
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      return res.status(400).json({
+        status: "fail",
+        message: "qty must be a positive integer",
+      });
+    }
+
+    const targetUser = await Users.findByPk(userId);
+    if (!targetUser) {
+      return res
+        .status(404)
+        .json({ status: "fail", message: "Target user not found" });
+    }
+
+    const preparedProduct = await buildKinguinOrderProduct({
+      productId,
+      qty: quantity,
+    });
+
+    const giveawayReference = `GIVEAWAY-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+
+    const order = await Order.create({
+      user: userId,
+      product: String(preparedProduct.kinguinId),
+      quantity,
+      unitPrice: preparedProduct.price,
+      products: [
+        {
+          product: String(preparedProduct.kinguinId),
+          quantity,
+          unitPrice: preparedProduct.price,
+        },
+      ],
+      totalPrice: preparedProduct.price * quantity,
+      waylReference: giveawayReference,
+      waylPaymentStatus: "paid",
+      status: "pending",
+    });
+
+    const kinguinOrderResponse = await submitKinguinOrderByProductId({
+      productId: preparedProduct.kinguinId,
+      qty: quantity,
+      orderExternalId: String(order.id),
+      kinguinProduct: preparedProduct,
+    });
+
+    order.kinguinOrderId = kinguinOrderResponse.orderId;
+    order.status = "kingwin";
+    await order.save();
+
+    return res.status(201).json({
+      status: "success",
+      data: {
+        orderId: order.id,
+        userId,
+        kinguinOrderId: order.kinguinOrderId,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
 
 // List current user's orders
 exports.myOrders = async (req, res) => {

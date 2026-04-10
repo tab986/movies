@@ -118,6 +118,7 @@ router.patch(
 
 //orders
 router.route("/orders").get(ordersControllers.getOrders);
+router.route("/orders/giveaway").post(ordersControllers.grantGiveawayOrder);
 router
   .route("/orders/:orderId")
   .get(ordersControllers.getOrder)
