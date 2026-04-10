@@ -31,6 +31,13 @@ router
     productsControllers.listGiftCards
   );
 
+router
+  .route("/best-deals")
+  .post(
+    requireDbReady({ dependency: "products catalog" }),
+    productsControllers.listBestDeals
+  );
+
 router.route("/popular-games").get(productsControllers.listPopularGames);
 
 router.route("/ads").get(adsControllers.getAds);

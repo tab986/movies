@@ -917,6 +917,7 @@ delete            — DELETE (admin): 204 on success
 | GET | `/new-games` | Public | `productsControllers.listNewGames` | Recent releases (default sort `releaseDate` desc, last 8 years window unless overridden) |
 | GET | `/ganraGames` | Public | `productsControllers.listGanraGames` | **Compact** genre listing: `genres` **required**; returns name, price, genres, image, `flags`; same filters as `/` except response shape |
 | GET | `/gift-cards` | Public | `productsControllers.listGiftCards` | Same as `/` with `isCard=true` (gift cards / prepaid) |
+| POST | `/best-deals` | Public | `productsControllers.listBestDeals` | Returns top discounted games vs official `regularAmount`; requires `minDiscountPercent` in body, optional `limit` (default 20, clamped 1..100), sorted by metacritic score then savings |
 | GET | `/popular-games` | Public | `productsControllers.listPopularGames` | ITAD “popular games” feed (external API; not the local DB catalog) |
 | GET | `/ads` | Public | `adsControllers.getAds` | List advertisements |
 | GET | `/ads/:id` | Public | `adsControllers.getAd` | Get single ad |
@@ -927,6 +928,41 @@ delete            — DELETE (admin): 204 on success
 Compatibility note: `/api/v1/products/search` (full listing alias) and `/api/v1/products/suggest` (autocomplete endpoint) are both kept during frontend migration. Keep `/search` for legacy clients and migrate typeahead flows to `/suggest`.
 
 **`ganraGames` query params:** `genres` (comma-separated, **required**). Other filters match the main list (`page`, `limit`, `q`, `regionId`, `priceFrom`, `priceTo`, `tags`, `sortBy`, `sortType`, etc.).
+
+**`best-deals` body (`POST /api/v1/products/best-deals`):**
+
+- `minDiscountPercent` (required number): `0..100`
+- `limit` (optional integer): defaults to `20`, clamped to `1..100`
+
+Behavior:
+
+- Excludes rows without valid `officialStore.regularAmount` (`> 0`)
+- Excludes rows without valid `derived.priceMin` and valid `remote.metacriticScore`
+- Requires visible + in-stock products only
+- Discount rule: `((regularAmount - priceMin) / regularAmount) * 100 >= minDiscountPercent`
+- Sort order: `metacriticScore DESC`, then `savingsPercent DESC`, then `id ASC`
+
+Response items include: `kinguinId`, `name`, `image`, `priceMin`, `originalPrice`, `metacriticScore`, `savingsPercent`, and `seo.path` (under `seo`).
+
+Example request bodies:
+
+```json
+{ "minDiscountPercent": 50, "limit": 10 }
+```
+
+```json
+{ "minDiscountPercent": 35.5 }
+```
+
+Invalid examples:
+
+```json
+{ "minDiscountPercent": -1 }
+```
+
+```json
+{ "minDiscountPercent": 20, "limit": "abc" }
+```
 
 ### articlesRoutes.js
 

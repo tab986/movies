@@ -48,6 +48,8 @@ function normalizePlatform(p) {
 
 const PRICE_MIN_NUMERIC_SQL = `NULLIF("derived"->>'priceMin', '')::double precision`;
 const METACRITIC_NUMERIC_SQL = `NULLIF("remote"->>'metacriticScore', '')::double precision`;
+const OFFICIAL_REGULAR_NUMERIC_SQL =
+  `NULLIF("officialStore"->>'regularAmount', '')::double precision`;
 const NOT_HIDDEN_SQL = `"flags"->>'hidden' IS DISTINCT FROM 'true'`;
 const IN_STOCK_SQL = `"derived"->'inStock' = 'true'::jsonb`;
 const SEARCH_NAME_SQL =
@@ -274,6 +276,108 @@ const {
 exports.listGiftCards = catchAsyncErrors(async (req, res, next) => {
   req.query = { ...req.query, isCard: "true" };
   return exports.listProducts(req, res, next);
+});
+
+exports.listBestDeals = catchAsyncErrors(async (req, res, next) => {
+  const minDiscountPercent = Number(req.body?.minDiscountPercent);
+  if (
+    !Number.isFinite(minDiscountPercent) ||
+    minDiscountPercent < 0 ||
+    minDiscountPercent > 100
+  ) {
+    return next(
+      new appError(
+        "Body field 'minDiscountPercent' is required and must be between 0 and 100",
+        400
+      )
+    );
+  }
+
+  const requestedLimit = req.body?.limit;
+  const parsedLimit =
+    requestedLimit === undefined ? 20 : Number.parseInt(requestedLimit, 10);
+  if (!Number.isInteger(parsedLimit)) {
+    return next(
+      new appError("Body field 'limit' must be an integer when provided", 400)
+    );
+  }
+  const limit = Math.max(1, Math.min(100, parsedLimit));
+
+  const savingsPercentSql = `(((${OFFICIAL_REGULAR_NUMERIC_SQL}) - (${PRICE_MIN_NUMERIC_SQL})) / (${OFFICIAL_REGULAR_NUMERIC_SQL})) * 100`;
+  const where = {
+    [Op.and]: [
+      Sequelize.literal(NOT_HIDDEN_SQL),
+      Sequelize.literal(IN_STOCK_SQL),
+      Sequelize.where(Sequelize.literal(OFFICIAL_REGULAR_NUMERIC_SQL), {
+        [Op.gt]: 0,
+      }),
+      Sequelize.where(Sequelize.literal(PRICE_MIN_NUMERIC_SQL), { [Op.gt]: 0 }),
+      Sequelize.where(Sequelize.literal(METACRITIC_NUMERIC_SQL), {
+        [Op.gte]: 0,
+      }),
+      Sequelize.where(Sequelize.literal(savingsPercentSql), {
+        [Op.gte]: minDiscountPercent,
+      }),
+    ],
+  };
+
+  const items = await KinguinProduct.findAll({
+    where,
+    attributes: [
+      "id",
+      "derived",
+      "overrides",
+      "remote",
+      [Sequelize.literal(OFFICIAL_REGULAR_NUMERIC_SQL), "originalPrice"],
+      [Sequelize.literal(METACRITIC_NUMERIC_SQL), "metacriticScoreNumeric"],
+      [Sequelize.literal(savingsPercentSql), "savingsPercent"],
+    ],
+    order: [
+      [Sequelize.literal(METACRITIC_NUMERIC_SQL), "DESC"],
+      [Sequelize.literal(savingsPercentSql), "DESC"],
+      ["id", "ASC"],
+    ],
+    limit,
+    raw: true,
+  });
+
+  const results = items.map((p) => {
+    const cover = p.overrides?.coverImage || p.remote?.images?.cover;
+    const image =
+      (cover && typeof cover === "object" ? cover.url : null) ||
+      (typeof cover === "string" ? cover : null) ||
+      null;
+
+    return {
+      kinguinId: p.id,
+      name: p.overrides?.name || p.remote?.name || p.remote?.originalName || null,
+      image,
+      priceMin: p.derived?.priceMin ?? null,
+      originalPrice: Number(p.originalPrice),
+      metacriticScore: Number(p.metacriticScoreNumeric),
+      savingsPercent: Number(p.savingsPercent),
+      seo: buildProductSeoListItem({ productRow: p, kinguinId: p.id }),
+    };
+  });
+
+  res.status(200).json({
+    status: "success",
+    meta: {
+      minDiscountPercent,
+      requestedLimit: requestedLimit === undefined ? 20 : requestedLimit,
+      limit,
+      item_count: results.length,
+      sorting: ["metacriticScore DESC", "savingsPercent DESC", "id ASC"],
+      exclusions: [
+        "hidden products",
+        "out of stock products",
+        "missing/invalid officialStore.regularAmount",
+        "missing/invalid derived.priceMin",
+        "missing/invalid remote.metacriticScore",
+      ],
+    },
+    results,
+  });
 });
 
 exports.listProducts = catchAsyncErrors(async (req, res, next) => {
