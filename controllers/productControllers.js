@@ -678,6 +678,23 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
 
 /** Compact list by genre(s): name, price, genres, image, flags. Same filters as listProducts except `genres` is required. */
 exports.listGanraGames = catchAsyncErrors(async (req, res, next) => {
+  const uniqueEdition =
+    String(req.query.uniqueEdition || "false").trim().toLowerCase() === "true";
+  const preferredEditionRaw = String(req.query.preferredEdition || "regular")
+    .trim()
+    .toLowerCase();
+  const preferredEdition = ["regular", "cheapest"].includes(preferredEditionRaw)
+    ? preferredEditionRaw
+    : null;
+  if (!preferredEdition) {
+    return next(
+      new appError(
+        "Query parameter 'preferredEdition' must be one of: regular, cheapest",
+        400
+      )
+    );
+  }
+
   const genresRaw = String(req.query.genres || "").trim();
   if (!genresRaw) {
     return next(new appError("Query parameter 'genres' is required", 400));
@@ -716,7 +733,71 @@ exports.listGanraGames = catchAsyncErrors(async (req, res, next) => {
   const rate = fx1.fxFallback ? 1 : fx1.rate;
   const currency = fx1.fxFallback ? "IQD" : fx1.currency;
 
-  const results = items.map((p) => {
+  const editionKeywords = new Set([
+    "deluxe",
+    "ultimate",
+    "gold",
+    "premium",
+    "complete",
+    "collector",
+    "collectors",
+    "goty",
+    "bundle",
+    "edition",
+    "remastered",
+    "anniversary",
+  ]);
+  const normalizeBaseTitle = (rawName) => {
+    const normalized = normStr(rawName)
+      .replace(/[()[\]{}:,+!'"`]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const tokens = normalized.split(" ").filter(Boolean);
+    while (tokens.length > 0 && editionKeywords.has(tokens[tokens.length - 1])) {
+      tokens.pop();
+    }
+    return tokens.join(" ").trim() || normalized;
+  };
+  const parsePriceMin = (item) => {
+    const parsed = Number(item?.derived?.priceMin);
+    return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+  };
+  const compareByPriceThenId = (a, b) => {
+    const priceDiff = parsePriceMin(a) - parsePriceMin(b);
+    if (priceDiff !== 0) return priceDiff;
+    return Number(a.id) - Number(b.id);
+  };
+  const isRegularEditionCandidate = (item) => {
+    const name = String(item?.overrides?.name || item?.remote?.name || "");
+    const normalized = normStr(name);
+    if (!normalized) return true;
+    return !/(deluxe|ultimate|gold|premium|complete|collector'?s?|goty|bundle|remastered|anniversary)\b/.test(
+      normalized
+    );
+  };
+  const selectEditionCandidate = (groupItems) => {
+    if (preferredEdition === "cheapest") {
+      return [...groupItems].sort(compareByPriceThenId)[0];
+    }
+    const regularCandidates = groupItems.filter(isRegularEditionCandidate);
+    const pool = regularCandidates.length > 0 ? regularCandidates : groupItems;
+    return [...pool].sort(compareByPriceThenId)[0];
+  };
+
+  const selectedItems = uniqueEdition
+    ? (() => {
+        const grouped = new Map();
+        for (const item of items) {
+          const rawName = item?.overrides?.name || item?.remote?.name || "";
+          const key = normalizeBaseTitle(rawName);
+          if (!grouped.has(key)) grouped.set(key, []);
+          grouped.get(key).push(item);
+        }
+        return Array.from(grouped.values()).map(selectEditionCandidate);
+      })()
+    : items;
+
+  const results = selectedItems.map((p) => {
     const priceIQD = p.derived?.priceMin ?? null;
     const priceConverted = priceIQD != null ? truncate2(priceIQD * rate) : null;
     const cover = p.remote?.images?.cover;
@@ -749,9 +830,11 @@ exports.listGanraGames = catchAsyncErrors(async (req, res, next) => {
     meta: {
       page,
       limit,
-      item_count: totalFilteredCount,
+      item_count: uniqueEdition ? results.length : totalFilteredCount,
       pageCount,
       hasMore,
+      uniqueEdition,
+      preferredEdition,
     },
     results,
   });

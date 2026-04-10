@@ -929,6 +929,24 @@ Compatibility note: `/api/v1/products/search` (full listing alias) and `/api/v1/
 
 **`ganraGames` query params:** `genres` (comma-separated, **required**). Other filters match the main list (`page`, `limit`, `q`, `regionId`, `priceFrom`, `priceTo`, `tags`, `sortBy`, `sortType`, etc.).
 
+Optional edition-mode params:
+
+- `uniqueEdition` (`true|false`, default `false`): when `true`, the response keeps one item per normalized base title and removes duplicate editions (deluxe/gold/ultimate/etc. variants).
+- `preferredEdition` (`regular|cheapest`, default `regular`): selection rule used only when `uniqueEdition=true`.
+  - `regular`: prefer a regular/base candidate first, fallback to cheapest by `derived.priceMin`.
+  - `cheapest`: always pick the cheapest candidate by `derived.priceMin`.
+
+Default behavior is unchanged unless `uniqueEdition=true`.
+
+Examples:
+
+- Full set (existing behavior):
+  - `GET /api/v1/products/ganraGames?genres=Action,RPG`
+- One item per game, regular/base prioritized:
+  - `GET /api/v1/products/ganraGames?genres=Action,RPG&uniqueEdition=true&preferredEdition=regular`
+- One item per game, always cheapest:
+  - `GET /api/v1/products/ganraGames?genres=Action,RPG&uniqueEdition=true&preferredEdition=cheapest`
+
 **`best-deals` body (`POST /api/v1/products/best-deals`):**
 
 - `minDiscountPercent` (required number): `0..100`
