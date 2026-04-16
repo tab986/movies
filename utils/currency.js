@@ -219,11 +219,21 @@ async function convertFromIQD(req, iqdAmount) {
   const geo = cfg.forcedPricing
     ? { countryCode: cfg.forcedCountryCode, currency: cfg.forcedCurrencyCode }
     : await geolocateByIp(ip);
-  const countryCode = geo.countryCode;
+  const countryCode =
+    geo?.countryCode && /^[A-Z]{2}$/.test(geo.countryCode)
+      ? geo.countryCode
+      : "IQ";
 
   if (!target) {
-    target = geo.currency || (await currencyForCountry(countryCode)) || "IQD";
+    const geoCurrency = String(geo?.currency || "")
+      .trim()
+      .toUpperCase();
+    target =
+      (/^[A-Z]{3}$/.test(geoCurrency) ? geoCurrency : null) ||
+      (await currencyForCountry(countryCode)) ||
+      "IQD";
   }
+  if (!/^[A-Z]{3}$/.test(target)) target = "IQD";
 
   // Short-circuit if we ended up with IQD
   if (target === "IQD") {

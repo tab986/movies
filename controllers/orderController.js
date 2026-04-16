@@ -269,23 +269,16 @@ async function createWaylLink(referenceId, amount, productName, image, req) {
   const iqd = Number(amount);
   if (!Number.isFinite(iqd) || iqd <= 0) throw new Error("Invalid amount");
 
-  // FX: detect target currency from IP (or ?currency / x-currency override)
+  // Keep Wayl checkout fixed to IQD to avoid currency drift.
   const fx = await convertFromIQD(req, iqd);
-  console.log("FX result:", fx ,":",typeof fx);
-  // first 2 decimals (truncate, not round)
-  const truncate2 = (n) => Math.trunc(Number(n) * 100) / 100;
-
-  // Decide what to send to Wayl:
-  // - If FX succeeded → use detected currency + converted amount
-  // - If FX failed or stayed IQD → fall back to IQD + original amount
-  const payCurrency = fx.fxFallback ? "IQD" : fx.currency || "IQD";
-  const payAmount =
-    fx.fxFallback || payCurrency === "IQD" ? iqd : truncate2(fx.amount);
+  console.log("FX result:", fx, ":", typeof fx);
+  const payCurrency = "IQD";
+  const payAmount = iqd;
 
   const payload = {
     referenceId: String(referenceId),
-    total: iqd, // converted amount (or IQD fallback)
-    currency: "IQD", // detected currency (or IQD fallback)
+    total: payAmount,
+    currency: payCurrency,
     lineItem: [
       {
         label: productName || "Basket Value",
@@ -324,9 +317,9 @@ async function createWaylLink(referenceId, amount, productName, image, req) {
     res.data.fxPreview = {
       fromIQD: iqd,
       currency: payCurrency,
-      rate: fx.fxFallback ? 1 : fx.rate,
+      rate: 1,
       amount: payAmount,
-      fallback: !!fx.fxFallback,
+      fallback: true,
     };
 
     return res.data; // { url, linkId, referenceId, ..., fxPreview }
