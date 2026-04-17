@@ -24,7 +24,10 @@ const WAYL_BASE = process.env.WAYL_BASE || "https://api.thewayl.com/api/v1";
 // Helper to verify Wayl webhook signature
 function verifyWaylSignature(req) {
   const signature = req.headers["x-wayl-signature-256"];
-  const expected = crypto.createHmac("sha256", process.env.WAYL_SECRET).update(json.stringify(req.body)).digest("hex");
+  const expected = crypto
+    .createHmac("sha256", process.env.WAYL_SECRET)
+    .update(JSON.stringify(req.body))
+    .digest("hex");
   return signature === expected;
 }
 const KINGUIN_API_BASE =
@@ -278,18 +281,24 @@ async function createWaylLink(referenceId, payment, productName, image) {
     throw new Error("Invalid payment currency");
   }
 
+  const normalizedAmount =
+    payCurrency === "IQD"
+      ? Math.round(payAmount)
+      : Number(payAmount.toFixed(2));
+
+  const lineItem = {
+    label: productName || "Basket Value",
+    amount: normalizedAmount,
+  };
+  if (image && String(image).trim()) {
+    lineItem.image = String(image).trim();
+  }
+
   const payload = {
     referenceId: String(referenceId),
-    total: payAmount,
+    total: normalizedAmount,
     currency: payCurrency,
-    lineItem: [
-      {
-        label: productName || "Basket Value",
-        type: "increase",
-        amount: payAmount,
-        image: image || "",
-      },
-    ],
+    lineItems: [lineItem],
     webhookUrl: process.env.WAYL_r,
     redirectionUrl: "https://www.gamewiseiq.com/my-orders",
     webhookSecret: process.env.WAYL_SECRET,
@@ -334,7 +343,7 @@ async function createWaylLink(referenceId, payment, productName, image) {
       status,
       JSON.stringify(data, null, 2)
     );
-    console.log("payload", payload , "gg");
+    console.error("Wayl payload sent:", payload);
     throw err;
   }
 }
