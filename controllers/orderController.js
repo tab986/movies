@@ -302,6 +302,7 @@ async function createWaylLink(referenceId, payment, productName, image) {
   const lineItem = {
     label: productName || "Basket Value",
     amount: normalizedAmount,
+    type: "increase",
   };
   if (image && String(image).trim()) {
     lineItem.image = String(image).trim();
@@ -311,7 +312,7 @@ async function createWaylLink(referenceId, payment, productName, image) {
     referenceId: String(referenceId),
     total: normalizedAmount,
     currency: payCurrency,
-    lineItems: [lineItem],
+    lineItem: [lineItem],
     webhookUrl: WAYL_WEBHOOK_URL,
     redirectionUrl: WAYL_REDIRECTION_URL,
     webhookSecret: WAYL_SECRET,
