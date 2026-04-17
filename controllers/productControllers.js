@@ -46,6 +46,10 @@ function normalizePlatform(p) {
   return n;
 }
 
+function toFrontendCurrency(rawCurrency) {
+  return String(rawCurrency || "").toUpperCase() === "IQD" ? "د.ع" : "USD";
+}
+
 const PRICE_MIN_NUMERIC_SQL = `NULLIF("derived"->>'priceMin', '')::double precision`;
 const METACRITIC_NUMERIC_SQL = `NULLIF("remote"->>'metacriticScore', '')::double precision`;
 const OFFICIAL_REGULAR_NUMERIC_SQL =
@@ -605,7 +609,7 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
       images: p.remote?.images,
 
       // prices & currency
-      currency, // e.g., 'EUR'
+      currency: toFrontendCurrency(currency),
       priceMinIQD: priceIQD, // original in IQD (kept for debugging)
       priceMin: priceConverted, // converted, truncated to 2 decimals
       priceMinFormatted: safeFormat(priceConverted, currency),
@@ -810,7 +814,7 @@ exports.listGanraGames = catchAsyncErrors(async (req, res, next) => {
       name: p.overrides?.name || p.remote?.name,
       genres: Array.isArray(p.remote?.genres) ? p.remote.genres : [],
       image,
-      currency,
+      currency: toFrontendCurrency(currency),
       priceMinIQD: priceIQD,
       price: priceConverted,
       priceFormatted: safeFormat(priceConverted, currency),
@@ -1076,7 +1080,7 @@ exports.getProduct = catchAsyncErrors(async (req, res, next) => {
       images: p.overrides?.images || p.remote?.images,
 
       // our store price
-      currency,
+      currency: toFrontendCurrency(currency),
       priceMinIQD: priceIQD,
       priceMin: priceConverted,
 
