@@ -20,6 +20,10 @@ const { computeMerchantLineDiscount } = require("../utils/merchantDiscount.js");
 // Wayl config
 const WAYL_AUTH_KEY = process.env.WAYL_AUTH_KEY; // set in your .env
 const WAYL_BASE = process.env.WAYL_BASE || "https://api.thewayl.com/api/v1";
+const WAYL_WEBHOOK_URL = process.env.WAYL_WEBHOOK_URL || process.env.WAYL_r;
+const WAYL_REDIRECTION_URL =
+  process.env.WAYL_REDIRECT_URL || "https://www.gamewiseiq.com/my-orders";
+const WAYL_SECRET = process.env.WAYL_SECRET;
 
 // Helper to verify Wayl webhook signature
 function verifyWaylSignature(req) {
@@ -280,6 +284,15 @@ async function createWaylLink(referenceId, payment, productName, image) {
   if (!/^[A-Z]{3}$/.test(payCurrency)) {
     throw new Error("Invalid payment currency");
   }
+  if (!WAYL_AUTH_KEY || !String(WAYL_AUTH_KEY).trim()) {
+    throw new Error("WAYL_AUTH_KEY missing");
+  }
+  if (!WAYL_WEBHOOK_URL || !String(WAYL_WEBHOOK_URL).trim()) {
+    throw new Error("WAYL_WEBHOOK_URL missing");
+  }
+  if (!WAYL_SECRET || !String(WAYL_SECRET).trim()) {
+    throw new Error("WAYL_SECRET missing");
+  }
 
   const normalizedAmount =
     payCurrency === "IQD"
@@ -299,9 +312,9 @@ async function createWaylLink(referenceId, payment, productName, image) {
     total: normalizedAmount,
     currency: payCurrency,
     lineItems: [lineItem],
-    webhookUrl: process.env.WAYL_r,
-    redirectionUrl: "https://www.gamewiseiq.com/my-orders",
-    webhookSecret: process.env.WAYL_SECRET,
+    webhookUrl: WAYL_WEBHOOK_URL,
+    redirectionUrl: WAYL_REDIRECTION_URL,
+    webhookSecret: WAYL_SECRET,
   };
 
 
@@ -344,7 +357,11 @@ async function createWaylLink(referenceId, payment, productName, image) {
       JSON.stringify(data, null, 2)
     );
     console.error("Wayl payload sent:", payload);
-    throw err;
+    throw new Error(
+      `Wayl create link failed (${status || "no-status"}): ${
+        data?.message || data?.error || JSON.stringify(data) || err.message
+      }`
+    );
   }
 }
 
