@@ -313,7 +313,9 @@ async function createWaylLink(referenceId, payment, productName, image) {
     total: normalizedAmount,
     currency: payCurrency,
     lineItem: [lineItem],
+    lineItems: [lineItem],
     webhookUrl: WAYL_WEBHOOK_URL,
+    redirectUrl: WAYL_REDIRECTION_URL,
     redirectionUrl: WAYL_REDIRECTION_URL,
     webhookSecret: WAYL_SECRET,
   };
@@ -352,15 +354,23 @@ async function createWaylLink(referenceId, payment, productName, image) {
   } catch (err) {
     const status = err.response?.status;
     const data = err.response?.data;
+    const details = data?.details || data?.errors || data?.fields || null;
     console.error(
       "Wayl create link error:",
       status,
       JSON.stringify(data, null, 2)
     );
+    if (details) {
+      console.error("Wayl validation details:", JSON.stringify(details, null, 2));
+    }
     console.error("Wayl payload sent:", payload);
     throw new Error(
       `Wayl create link failed (${status || "no-status"}): ${
-        data?.message || data?.error || JSON.stringify(data) || err.message
+        data?.message ||
+        data?.error ||
+        (details ? JSON.stringify(details) : null) ||
+        JSON.stringify(data) ||
+        err.message
       }`
     );
   }

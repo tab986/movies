@@ -5,6 +5,24 @@ const catchAsync = require("../utils/catchAsyncErrors");
 const AppError = require("../utils/appError");
 const APIFeatures = require("../utils/APIFeatures");
 
+function extractJwtFromCookieHeader(cookieHeader) {
+  if (!cookieHeader || typeof cookieHeader !== "string") return null;
+  const pairs = cookieHeader.split(";");
+  for (const pair of pairs) {
+    const [rawKey, ...rawValueParts] = pair.split("=");
+    const key = String(rawKey || "").trim();
+    if (key !== "JWT") continue;
+    const rawValue = rawValueParts.join("=").trim();
+    if (!rawValue) return null;
+    try {
+      return decodeURIComponent(rawValue);
+    } catch (_) {
+      return rawValue;
+    }
+  }
+  return null;
+}
+
 const createToken = (userId) =>
   jwt.sign({ id: userId }, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRES_IN,
@@ -192,6 +210,12 @@ exports.protect = catchAsync(async (req, res, next) => {
     req.headers.authorization.startsWith("Bearer")
   ) {
     token = req.headers.authorization.split(" ")[1];
+  }
+  if (!token && req.cookies?.JWT) {
+    token = req.cookies.JWT;
+  }
+  if (!token) {
+    token = extractJwtFromCookieHeader(req.headers.cookie);
   }
 
   if (!token) {
