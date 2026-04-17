@@ -16,6 +16,11 @@ module.exports = (sequelize, DataTypes) => {
       coupon: DataTypes.STRING,
       discount: { type: DataTypes.FLOAT, defaultValue: 0 },
       totalPrice: { type: DataTypes.FLOAT, allowNull: false },
+      paymentCurrency: {
+        type: DataTypes.STRING(3),
+        allowNull: false,
+        defaultValue: "IQD",
+      },
       waylReference: { type: DataTypes.STRING, allowNull: false },
       country: { type: DataTypes.STRING, defaultValue: "IQ" },
       waylPaymentStatus: {

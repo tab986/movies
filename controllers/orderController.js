@@ -264,16 +264,19 @@ async function consumeCouponUsageForOrder(order) {
   await coupon.save();
 }
 // Create payment link via Wayl
-async function createWaylLink(referenceId, amount, productName, image, req) {
-  // base (IQD from your system)
-  const iqd = Number(amount);
-  if (!Number.isFinite(iqd) || iqd <= 0) throw new Error("Invalid amount");
+async function createWaylLink(referenceId, payment, productName, image) {
+  const payAmount = Number(payment?.amount);
+  const payCurrency = String(payment?.currency || "").toUpperCase();
+  const sourceAmountIQD = Number(payment?.sourceAmountIQD);
+  const conversionRate = Number(payment?.rate);
+  const usedFallback = Boolean(payment?.fxFallback);
 
-  // Keep Wayl checkout fixed to IQD to avoid currency drift.
-  const fx = await convertFromIQD(req, iqd);
-  console.log("FX result:", fx, ":", typeof fx);
-  const payCurrency = "IQD";
-  const payAmount = iqd;
+  if (!Number.isFinite(payAmount) || payAmount <= 0) {
+    throw new Error("Invalid payment amount");
+  }
+  if (!/^[A-Z]{3}$/.test(payCurrency)) {
+    throw new Error("Invalid payment currency");
+  }
 
   const payload = {
     referenceId: String(referenceId),
@@ -283,7 +286,7 @@ async function createWaylLink(referenceId, amount, productName, image, req) {
       {
         label: productName || "Basket Value",
         type: "increase",
-        amount: payAmount || 0.00,
+        amount: payAmount,
         image: image || "",
       },
     ],
@@ -315,11 +318,11 @@ async function createWaylLink(referenceId, amount, productName, image, req) {
 
     // Optional: include FX info for your UI/logs
     res.data.fxPreview = {
-      fromIQD: iqd,
+      fromIQD: sourceAmountIQD,
       currency: payCurrency,
-      rate: 1,
+      rate: Number.isFinite(conversionRate) ? conversionRate : null,
       amount: payAmount,
-      fallback: true,
+      fallback: usedFallback,
     };
 
     return res.data; // { url, linkId, referenceId, ..., fxPreview }
@@ -444,14 +447,23 @@ exports.checkout = async (req, res, next) => {
       });
     }
 
+    const fx = await convertFromIQD(req, total);
+    const paymentCurrency = fx.currency;
+    const paymentTotal =
+      paymentCurrency === "IQD"
+        ? Math.round(Number(fx.amount))
+        : Number(Number(fx.amount).toFixed(2));
+
     // Construct order document
     const waylRef = `WAYL-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const orderData = {
       user: userId,
-      totalPrice: total,
+      totalPrice: paymentTotal,
+      paymentCurrency,
       discount: discountAmount,
       coupon: appliedCouponCode,
       waylReference: waylRef,
+      country: fx.countryCode,
       merchants: merchantProfile ? userId : null,
       merchantDiscountType,
       merchantDiscountValue,
@@ -509,10 +521,15 @@ exports.checkout = async (req, res, next) => {
     }
     const waylResponse = await createWaylLink(
       waylRef,
-      total,
+      {
+        amount: paymentTotal,
+        currency: paymentCurrency,
+        sourceAmountIQD: total,
+        rate: fx.rate,
+        fxFallback: fx.fxFallback,
+      },
       label,
-      image,
-      req
+      image
     );
     // Persist the generated payment link
     const payUrl = waylResponse.data?.url || waylResponse?.url;
