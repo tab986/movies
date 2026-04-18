@@ -270,6 +270,41 @@ async function consumeCouponUsageForOrder(order) {
   coupon.users = [...new Set([...normalizedUsers, orderUserId])];
   await coupon.save();
 }
+
+/**
+ * Wayl link API validates currency=IQD and total>=1000. Checkout still computes
+ * FX for display; only the HTTP body to Wayl uses IQD from the basket.
+ */
+function buildWaylPaymentPayload(payment) {
+  const sourceAmountIQD = Number(payment?.sourceAmountIQD);
+  const payAmount = Number(payment?.amount);
+  const payCurrency = String(payment?.currency || "").toUpperCase();
+
+  let totalIqd;
+  if (Number.isFinite(sourceAmountIQD) && sourceAmountIQD > 0) {
+    totalIqd = Math.round(sourceAmountIQD);
+  } else if (payCurrency === "IQD" && Number.isFinite(payAmount) && payAmount > 0) {
+    totalIqd = Math.round(payAmount);
+  } else {
+    throw new Error(
+      "Cannot build Wayl payload: missing IQD basket total (sourceAmountIQD)"
+    );
+  }
+
+  if (totalIqd < 1000) {
+    throw new appError(
+      "Order total must be at least 1000 IQD for payment (Wayl minimum)",
+      400
+    );
+  }
+
+  return {
+    total: totalIqd,
+    currency: "IQD",
+    lineItemAmount: totalIqd,
+  };
+}
+
 // Create payment link via Wayl
 async function createWaylLink(referenceId, payment, productName, image) {
   const payAmount = Number(payment?.amount);
@@ -278,12 +313,6 @@ async function createWaylLink(referenceId, payment, productName, image) {
   const conversionRate = Number(payment?.rate);
   const usedFallback = Boolean(payment?.fxFallback);
 
-  if (!Number.isFinite(payAmount) || payAmount <= 0) {
-    throw new Error("Invalid payment amount");
-  }
-  if (!/^[A-Z]{3}$/.test(payCurrency)) {
-    throw new Error("Invalid payment currency");
-  }
   if (!WAYL_AUTH_KEY || !String(WAYL_AUTH_KEY).trim()) {
     throw new Error("WAYL_AUTH_KEY missing");
   }
@@ -294,10 +323,8 @@ async function createWaylLink(referenceId, payment, productName, image) {
     throw new Error("WAYL_SECRET missing");
   }
 
-  const normalizedAmount =
-    payCurrency === "IQD"
-      ? Math.round(payAmount)
-      : Number(payAmount.toFixed(2));
+  const wayl = buildWaylPaymentPayload(payment);
+  const normalizedAmount = wayl.lineItemAmount;
 
   const lineItem = {
     label: productName || "Basket Value",
@@ -310,8 +337,8 @@ async function createWaylLink(referenceId, payment, productName, image) {
 
   const payload = {
     referenceId: String(referenceId),
-    total: normalizedAmount,
-    currency: payCurrency,
+    total: wayl.total,
+    currency: wayl.currency,
     lineItem: [lineItem],
     lineItems: [lineItem],
     webhookUrl: WAYL_WEBHOOK_URL,
@@ -327,27 +354,28 @@ async function createWaylLink(referenceId, payment, productName, image) {
       timeout: 15000,
     });
 
-    // Append currency param to link (?currency=xxx)
+    // Append currency param to link (?currency=xxx) — match Wayl payload (IQD)
     if (res?.data?.url) {
       try {
         const u = new URL(res.data.url);
-        u.searchParams.set("currency", String(payCurrency).toLowerCase());
+        u.searchParams.set("currency", String(wayl.currency).toLowerCase());
         res.data.url = u.toString();
       } catch {
         res.data.url =
           res.data.url +
           (res.data.url.includes("?") ? "&" : "?") +
-          `currency=${encodeURIComponent(String(payCurrency).toLowerCase())}`;
+          `currency=${encodeURIComponent(String(wayl.currency).toLowerCase())}`;
       }
     }
 
-    // Optional: include FX info for your UI/logs
+    // Optional: include FX info for your UI/logs (Wayl billed IQD separately)
     res.data.fxPreview = {
       fromIQD: sourceAmountIQD,
       currency: payCurrency,
       rate: Number.isFinite(conversionRate) ? conversionRate : null,
       amount: payAmount,
       fallback: usedFallback,
+      waylBilled: { total: wayl.total, currency: wayl.currency },
     };
 
     return res.data; // { url, linkId, referenceId, ..., fxPreview }
