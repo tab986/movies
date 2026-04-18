@@ -23,6 +23,44 @@ function extractJwtFromCookieHeader(cookieHeader) {
   return null;
 }
 
+/** Three dot-separated segments — avoids treating arbitrary strings as JWTs */
+function looksLikeJwt(value) {
+  if (!value || typeof value !== "string") return false;
+  const parts = value.trim().split(".");
+  return parts.length === 3 && parts.every((p) => p.length > 0);
+}
+
+function getAccessTokenFromRequest(req) {
+  const auth = req.headers.authorization;
+  if (auth && typeof auth === "string") {
+    const trimmed = auth.trim();
+    const bearerMatch = trimmed.match(/^Bearer\s+(.+)$/i);
+    if (bearerMatch?.[1]) {
+      return bearerMatch[1].trim();
+    }
+    if (looksLikeJwt(trimmed)) {
+      return trimmed;
+    }
+  }
+
+  if (req.cookies?.JWT) {
+    return req.cookies.JWT;
+  }
+
+  const fromCookieHeader = extractJwtFromCookieHeader(req.headers.cookie);
+  if (fromCookieHeader) {
+    return fromCookieHeader;
+  }
+
+  const alt = req.headers["x-access-token"] || req.headers["x-auth-token"];
+  if (alt && typeof alt === "string") {
+    const t = alt.trim();
+    return t || null;
+  }
+
+  return null;
+}
+
 const createToken = (userId) =>
   jwt.sign({ id: userId }, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRES_IN,
@@ -205,19 +243,7 @@ exports.login = (role = "user") =>
   });
 
 exports.protect = catchAsync(async (req, res, next) => {
-  let token;
-  if (
-    req.headers.authorization &&
-    req.headers.authorization.startsWith("Bearer")
-  ) {
-    token = req.headers.authorization.split(" ")[1];
-  }
-  if (!token && req.cookies?.JWT) {
-    token = req.cookies.JWT;
-  }
-  if (!token) {
-    token = extractJwtFromCookieHeader(req.headers.cookie);
-  }
+  const token = getAccessTokenFromRequest(req);
 
   if (!token) {
     return next(new AppError("Unauthorized access. Token missing.", 401));

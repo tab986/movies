@@ -22,6 +22,7 @@ const mongoSanitize = require("express-mongo-sanitize");
 const xss = require("xss-clean");
 const hpp = require("hpp");
 const cors = require("cors");
+const cookieParser = require("cookie-parser");
 const bodyParser = require("body-parser");
 
 const app = exp();
@@ -72,6 +73,8 @@ app.use(
     credentials: true,
   })
 );
+
+app.use(cookieParser());
 
 // Trust only the first proxy (Render's reverse proxy)
 app.set("trust proxy", 1);
