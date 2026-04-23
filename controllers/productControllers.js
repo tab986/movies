@@ -448,10 +448,10 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
     }
   };
 
-  // before mapping, get a single FX rate for this request
-  const fx1 = await convertFromIQD(req, 1); // 1 IQD → X
-  const rate = fx1.fxFallback ? 1 : fx1.rate; // multiplier from IQD
-  const currency = fx1.fxFallback ? "IQD" : fx1.currency; // target currency (or IQD fallback)
+  // Keep FX call for compatibility/diagnostics, but force IQD output.
+  await convertFromIQD(req, 1); // 1 IQD → X
+  const rate = 1;
+  const currency = "IQD";
 
   const now = Date.now();
   const REFRESH_INTERVAL_MS = 48 * 60 * 60 * 1000; // 48h
@@ -731,9 +731,10 @@ exports.listGanraGames = catchAsyncErrors(async (req, res, next) => {
     }
   };
 
-  const fx1 = await convertFromIQD(req, 1);
-  const rate = fx1.fxFallback ? 1 : fx1.rate;
-  const currency = fx1.fxFallback ? "IQD" : fx1.currency;
+  // Keep FX call for compatibility/diagnostics, but force IQD output.
+  await convertFromIQD(req, 1);
+  const rate = 1;
+  const currency = "IQD";
 
   const editionKeywords = new Set([
     "deluxe",
@@ -1006,10 +1007,10 @@ exports.getProduct = catchAsyncErrors(async (req, res, next) => {
 
   const truncate2 = (n) => Math.trunc(Number(n) * 100) / 100;
 
-  // FX for our own price (IQD → user currency)
-  const fx = await convertFromIQD(req, 1);
-  const rate = fx.fxFallback ? 1 : fx.rate;
-  const currency = fx.fxFallback ? "IQD" : fx.currency;
+  // Keep FX call for compatibility/diagnostics, but force IQD output.
+  await convertFromIQD(req, 1);
+  const rate = 1;
+  const currency = "IQD";
 
   const priceIQD = p.derived?.priceMin ?? null;
   const priceConverted = priceIQD != null ? truncate2(priceIQD * rate) : null;
