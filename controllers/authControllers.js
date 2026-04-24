@@ -1,9 +1,65 @@
 const jwt = require("jsonwebtoken");
 const { promisify } = require("util");
-const { Users } = require("../post-models");
+const { Users, Merchant, sequelize } = require("../post-models");
 const catchAsync = require("../utils/catchAsyncErrors");
 const AppError = require("../utils/appError");
 const APIFeatures = require("../utils/APIFeatures");
+
+function extractJwtFromCookieHeader(cookieHeader) {
+  if (!cookieHeader || typeof cookieHeader !== "string") return null;
+  const pairs = cookieHeader.split(";");
+  for (const pair of pairs) {
+    const [rawKey, ...rawValueParts] = pair.split("=");
+    const key = String(rawKey || "").trim();
+    if (key !== "JWT") continue;
+    const rawValue = rawValueParts.join("=").trim();
+    if (!rawValue) return null;
+    try {
+      return decodeURIComponent(rawValue);
+    } catch (_) {
+      return rawValue;
+    }
+  }
+  return null;
+}
+
+/** Three dot-separated segments — avoids treating arbitrary strings as JWTs */
+function looksLikeJwt(value) {
+  if (!value || typeof value !== "string") return false;
+  const parts = value.trim().split(".");
+  return parts.length === 3 && parts.every((p) => p.length > 0);
+}
+
+function getAccessTokenFromRequest(req) {
+  const auth = req.headers.authorization;
+  if (auth && typeof auth === "string") {
+    const trimmed = auth.trim();
+    const bearerMatch = trimmed.match(/^Bearer\s+(.+)$/i);
+    if (bearerMatch?.[1]) {
+      return bearerMatch[1].trim();
+    }
+    if (looksLikeJwt(trimmed)) {
+      return trimmed;
+    }
+  }
+
+  if (req.cookies?.JWT) {
+    return req.cookies.JWT;
+  }
+
+  const fromCookieHeader = extractJwtFromCookieHeader(req.headers.cookie);
+  if (fromCookieHeader) {
+    return fromCookieHeader;
+  }
+
+  const alt = req.headers["x-access-token"] || req.headers["x-auth-token"];
+  if (alt && typeof alt === "string") {
+    const t = alt.trim();
+    return t || null;
+  }
+
+  return null;
+}
 
 const createToken = (userId) =>
   jwt.sign({ id: userId }, process.env.JWT_SECRET, {
@@ -16,6 +72,7 @@ const getCookieOptions = () => ({
   ),
   httpOnly: true,
   secure: process.env.NODE_ENV === "production",
+  sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
 });
 
 const SENSITIVE_USER_FIELDS = [
@@ -95,15 +152,50 @@ exports.signup = (role = "user") =>
       }
     }
 
-    const user = await Users.create({
-      fullName: req.body.fullName,
-      phone: req.body.phone, // ✅ matches schema
-      governorate: req.body.governorate,
-      city: req.body.city,
-      address: req.body.address,
-      password: req.body.password,
-      role, // comes from function arg / controller
-    });
+    let user;
+    if (role === "merchant") {
+      if (!req.body.storeName || String(req.body.storeName).trim() === "") {
+        return next(new AppError("storeName is required for merchant signup", 400));
+      }
+      const transaction = await sequelize.transaction();
+      try {
+        user = await Users.create(
+          {
+            fullName: req.body.fullName,
+            phone: req.body.phone,
+            governorate: req.body.governorate,
+            city: req.body.city,
+            address: req.body.address,
+            password: req.body.password,
+            role,
+          },
+          { transaction }
+        );
+        await Merchant.create(
+          {
+            userId: user.id,
+            storeName: String(req.body.storeName).trim(),
+            status: "active",
+            discountActive: false,
+          },
+          { transaction }
+        );
+        await transaction.commit();
+      } catch (err) {
+        await transaction.rollback();
+        throw err;
+      }
+    } else {
+      user = await Users.create({
+        fullName: req.body.fullName,
+        phone: req.body.phone, // ✅ matches schema
+        governorate: req.body.governorate,
+        city: req.body.city,
+        address: req.body.address,
+        password: req.body.password,
+        role, // comes from function arg / controller
+      });
+    }
 
     const token = createToken(user.id);
     res.cookie("JWT", token, getCookieOptions());
@@ -138,6 +230,11 @@ exports.login = (role = "user") =>
         return next(new AppError("You do not have admin access", 403));
       }
     }
+    if (role === "merchant") {
+      if (user.role !== "merchant") {
+        return next(new AppError("You do not have merchant access", 403));
+      }
+    }
     res.status(200).json({
       status: "success",
       token,
@@ -146,13 +243,7 @@ exports.login = (role = "user") =>
   });
 
 exports.protect = catchAsync(async (req, res, next) => {
-  let token;
-  if (
-    req.headers.authorization &&
-    req.headers.authorization.startsWith("Bearer")
-  ) {
-    token = req.headers.authorization.split(" ")[1];
-  }
+  const token = getAccessTokenFromRequest(req);
 
   if (!token) {
     return next(new AppError("Unauthorized access. Token missing.", 401));

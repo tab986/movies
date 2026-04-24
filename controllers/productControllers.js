@@ -2,13 +2,17 @@
 const { KinguinProduct, Sequelize } = require("../post-models"); // local mirror schema
 const catchAsyncErrors = require("../utils/catchAsyncErrors");
 const appError = require("../utils/appError");
-const { convertFromIQD, fixedPricingConfig } = require("../utils/currency");
+const { convertFromIQD } = require("../utils/currency");
 const { Op } = require("sequelize");
 const {
   buildSearchDescriptor,
   buildSearchFilterSql,
   buildSearchRankSql,
 } = require("../utils/searchRanking");
+const {
+  buildProductSeoDetail,
+  buildProductSeoListItem,
+} = require("../utils/productSeo");
 
 // controllers/localProductsController.js (excerpt)
 
@@ -42,8 +46,14 @@ function normalizePlatform(p) {
   return n;
 }
 
+function toFrontendCurrency(rawCurrency) {
+  return String(rawCurrency || "").toUpperCase() === "IQD" ? "د.ع" : "USD";
+}
+
 const PRICE_MIN_NUMERIC_SQL = `NULLIF("derived"->>'priceMin', '')::double precision`;
 const METACRITIC_NUMERIC_SQL = `NULLIF("remote"->>'metacriticScore', '')::double precision`;
+const OFFICIAL_REGULAR_NUMERIC_SQL =
+  `NULLIF("officialStore"->>'regularAmount', '')::double precision`;
 const NOT_HIDDEN_SQL = `"flags"->>'hidden' IS DISTINCT FROM 'true'`;
 const IN_STOCK_SQL = `"derived"->'inStock' = 'true'::jsonb`;
 const SEARCH_NAME_SQL =
@@ -272,6 +282,108 @@ exports.listGiftCards = catchAsyncErrors(async (req, res, next) => {
   return exports.listProducts(req, res, next);
 });
 
+exports.listBestDeals = catchAsyncErrors(async (req, res, next) => {
+  const minDiscountPercent = Number(req.body?.minDiscountPercent);
+  if (
+    !Number.isFinite(minDiscountPercent) ||
+    minDiscountPercent < 0 ||
+    minDiscountPercent > 100
+  ) {
+    return next(
+      new appError(
+        "Body field 'minDiscountPercent' is required and must be between 0 and 100",
+        400
+      )
+    );
+  }
+
+  const requestedLimit = req.body?.limit;
+  const parsedLimit =
+    requestedLimit === undefined ? 20 : Number.parseInt(requestedLimit, 10);
+  if (!Number.isInteger(parsedLimit)) {
+    return next(
+      new appError("Body field 'limit' must be an integer when provided", 400)
+    );
+  }
+  const limit = Math.max(1, Math.min(100, parsedLimit));
+
+  const savingsPercentSql = `(((${OFFICIAL_REGULAR_NUMERIC_SQL}) - (${PRICE_MIN_NUMERIC_SQL})) / (${OFFICIAL_REGULAR_NUMERIC_SQL})) * 100`;
+  const where = {
+    [Op.and]: [
+      Sequelize.literal(NOT_HIDDEN_SQL),
+      Sequelize.literal(IN_STOCK_SQL),
+      Sequelize.where(Sequelize.literal(OFFICIAL_REGULAR_NUMERIC_SQL), {
+        [Op.gt]: 0,
+      }),
+      Sequelize.where(Sequelize.literal(PRICE_MIN_NUMERIC_SQL), { [Op.gt]: 0 }),
+      Sequelize.where(Sequelize.literal(METACRITIC_NUMERIC_SQL), {
+        [Op.gte]: 0,
+      }),
+      Sequelize.where(Sequelize.literal(savingsPercentSql), {
+        [Op.gte]: minDiscountPercent,
+      }),
+    ],
+  };
+
+  const items = await KinguinProduct.findAll({
+    where,
+    attributes: [
+      "id",
+      "derived",
+      "overrides",
+      "remote",
+      [Sequelize.literal(OFFICIAL_REGULAR_NUMERIC_SQL), "originalPrice"],
+      [Sequelize.literal(METACRITIC_NUMERIC_SQL), "metacriticScoreNumeric"],
+      [Sequelize.literal(savingsPercentSql), "savingsPercent"],
+    ],
+    order: [
+      [Sequelize.literal(METACRITIC_NUMERIC_SQL), "DESC"],
+      [Sequelize.literal(savingsPercentSql), "DESC"],
+      ["id", "ASC"],
+    ],
+    limit,
+    raw: true,
+  });
+
+  const results = items.map((p) => {
+    const cover = p.overrides?.coverImage || p.remote?.images?.cover;
+    const image =
+      (cover && typeof cover === "object" ? cover.url : null) ||
+      (typeof cover === "string" ? cover : null) ||
+      null;
+
+    return {
+      kinguinId: p.id,
+      name: p.overrides?.name || p.remote?.name || p.remote?.originalName || null,
+      image,
+      priceMin: p.derived?.priceMin ?? null,
+      originalPrice: Number(p.originalPrice),
+      metacriticScore: Number(p.metacriticScoreNumeric),
+      savingsPercent: Number(p.savingsPercent),
+      seo: buildProductSeoListItem({ productRow: p, kinguinId: p.id }),
+    };
+  });
+
+  res.status(200).json({
+    status: "success",
+    meta: {
+      minDiscountPercent,
+      requestedLimit: requestedLimit === undefined ? 20 : requestedLimit,
+      limit,
+      item_count: results.length,
+      sorting: ["metacriticScore DESC", "savingsPercent DESC", "id ASC"],
+      exclusions: [
+        "hidden products",
+        "out of stock products",
+        "missing/invalid officialStore.regularAmount",
+        "missing/invalid derived.priceMin",
+        "missing/invalid remote.metacriticScore",
+      ],
+    },
+    results,
+  });
+});
+
 exports.listProducts = catchAsyncErrors(async (req, res, next) => {
   const requestStartMs = Date.now();
   const { where, page, limit, order, search } = buildListQuery(req.query);
@@ -336,19 +448,17 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
     }
   };
 
-  // before mapping, get a single FX rate for this request
-  const fx1 = await convertFromIQD(req, 1); // 1 IQD → X
-  const rate = fx1.fxFallback ? 1 : fx1.rate; // multiplier from IQD
-  const currency = fx1.fxFallback ? "IQD" : fx1.currency; // target currency (or IQD fallback)
+  // Keep FX call for compatibility/diagnostics, but force IQD output.
+  await convertFromIQD(req, 1); // 1 IQD → X
+  const rate = 1;
+  const currency = "IQD";
 
   const now = Date.now();
   const REFRESH_INTERVAL_MS = 48 * 60 * 60 * 1000; // 48h
-  const pricingCfg = fixedPricingConfig();
-  const country = pricingCfg.forcedPricing
-    ? pricingCfg.forcedCountryCode
-    : (req.user && req.user.countryCode) ||
-      process.env.ITAD_DEFAULT_COUNTRY ||
-      "US";
+  const country =
+    (req.user && req.user.countryCode) ||
+    process.env.ITAD_DEFAULT_COUNTRY ||
+    "US";
 
   // ---------- Batch ITAD refresh for items on this page ----------
   // Search requests should stay fast and never block on external price sync.
@@ -499,7 +609,7 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
       images: p.remote?.images,
 
       // prices & currency
-      currency, // e.g., 'EUR'
+      currency: toFrontendCurrency(currency),
       priceMinIQD: priceIQD, // original in IQD (kept for debugging)
       priceMin: priceConverted, // converted, truncated to 2 decimals
       priceMinFormatted: safeFormat(priceConverted, currency),
@@ -540,6 +650,7 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
       releaseDate: p.remote?.releaseDate,
       description: p.overrides?.description || p.remote?.description,
       remote: p.remote, // keep for admin/debug
+      seo: buildProductSeoListItem({ productRow: p, kinguinId: p.id }),
     };
   });
 
@@ -569,6 +680,23 @@ exports.listProducts = catchAsyncErrors(async (req, res, next) => {
 
 /** Compact list by genre(s): name, price, genres, image, flags. Same filters as listProducts except `genres` is required. */
 exports.listGanraGames = catchAsyncErrors(async (req, res, next) => {
+  const uniqueEdition =
+    String(req.query.uniqueEdition || "false").trim().toLowerCase() === "true";
+  const preferredEditionRaw = String(req.query.preferredEdition || "regular")
+    .trim()
+    .toLowerCase();
+  const preferredEdition = ["regular", "cheapest"].includes(preferredEditionRaw)
+    ? preferredEditionRaw
+    : null;
+  if (!preferredEdition) {
+    return next(
+      new appError(
+        "Query parameter 'preferredEdition' must be one of: regular, cheapest",
+        400
+      )
+    );
+  }
+
   const genresRaw = String(req.query.genres || "").trim();
   if (!genresRaw) {
     return next(new appError("Query parameter 'genres' is required", 400));
@@ -603,11 +731,76 @@ exports.listGanraGames = catchAsyncErrors(async (req, res, next) => {
     }
   };
 
-  const fx1 = await convertFromIQD(req, 1);
-  const rate = fx1.fxFallback ? 1 : fx1.rate;
-  const currency = fx1.fxFallback ? "IQD" : fx1.currency;
+  // Keep FX call for compatibility/diagnostics, but force IQD output.
+  await convertFromIQD(req, 1);
+  const rate = 1;
+  const currency = "IQD";
 
-  const results = items.map((p) => {
+  const editionKeywords = new Set([
+    "deluxe",
+    "ultimate",
+    "gold",
+    "premium",
+    "complete",
+    "collector",
+    "collectors",
+    "goty",
+    "bundle",
+    "edition",
+    "remastered",
+    "anniversary",
+  ]);
+  const normalizeBaseTitle = (rawName) => {
+    const normalized = normStr(rawName)
+      .replace(/[()[\]{}:,+!'"`]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const tokens = normalized.split(" ").filter(Boolean);
+    while (tokens.length > 0 && editionKeywords.has(tokens[tokens.length - 1])) {
+      tokens.pop();
+    }
+    return tokens.join(" ").trim() || normalized;
+  };
+  const parsePriceMin = (item) => {
+    const parsed = Number(item?.derived?.priceMin);
+    return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+  };
+  const compareByPriceThenId = (a, b) => {
+    const priceDiff = parsePriceMin(a) - parsePriceMin(b);
+    if (priceDiff !== 0) return priceDiff;
+    return Number(a.id) - Number(b.id);
+  };
+  const isRegularEditionCandidate = (item) => {
+    const name = String(item?.overrides?.name || item?.remote?.name || "");
+    const normalized = normStr(name);
+    if (!normalized) return true;
+    return !/(deluxe|ultimate|gold|premium|complete|collector'?s?|goty|bundle|remastered|anniversary)\b/.test(
+      normalized
+    );
+  };
+  const selectEditionCandidate = (groupItems) => {
+    if (preferredEdition === "cheapest") {
+      return [...groupItems].sort(compareByPriceThenId)[0];
+    }
+    const regularCandidates = groupItems.filter(isRegularEditionCandidate);
+    const pool = regularCandidates.length > 0 ? regularCandidates : groupItems;
+    return [...pool].sort(compareByPriceThenId)[0];
+  };
+
+  const selectedItems = uniqueEdition
+    ? (() => {
+        const grouped = new Map();
+        for (const item of items) {
+          const rawName = item?.overrides?.name || item?.remote?.name || "";
+          const key = normalizeBaseTitle(rawName);
+          if (!grouped.has(key)) grouped.set(key, []);
+          grouped.get(key).push(item);
+        }
+        return Array.from(grouped.values()).map(selectEditionCandidate);
+      })()
+    : items;
+
+  const results = selectedItems.map((p) => {
     const priceIQD = p.derived?.priceMin ?? null;
     const priceConverted = priceIQD != null ? truncate2(priceIQD * rate) : null;
     const cover = p.remote?.images?.cover;
@@ -622,11 +815,12 @@ exports.listGanraGames = catchAsyncErrors(async (req, res, next) => {
       name: p.overrides?.name || p.remote?.name,
       genres: Array.isArray(p.remote?.genres) ? p.remote.genres : [],
       image,
-      currency,
+      currency: toFrontendCurrency(currency),
       priceMinIQD: priceIQD,
       price: priceConverted,
       priceFormatted: safeFormat(priceConverted, currency),
       flags: p.flags && typeof p.flags === "object" ? p.flags : {},
+      seo: buildProductSeoListItem({ productRow: p, kinguinId: p.id }),
     };
   });
 
@@ -639,9 +833,11 @@ exports.listGanraGames = catchAsyncErrors(async (req, res, next) => {
     meta: {
       page,
       limit,
-      item_count: totalFilteredCount,
+      item_count: uniqueEdition ? results.length : totalFilteredCount,
       pageCount,
       hasMore,
+      uniqueEdition,
+      preferredEdition,
     },
     results,
   });
@@ -811,10 +1007,10 @@ exports.getProduct = catchAsyncErrors(async (req, res, next) => {
 
   const truncate2 = (n) => Math.trunc(Number(n) * 100) / 100;
 
-  // FX for our own price (IQD → user currency)
-  const fx = await convertFromIQD(req, 1);
-  const rate = fx.fxFallback ? 1 : fx.rate;
-  const currency = fx.fxFallback ? "IQD" : fx.currency;
+  // Keep FX call for compatibility/diagnostics, but force IQD output.
+  await convertFromIQD(req, 1);
+  const rate = 1;
+  const currency = "IQD";
 
   const priceIQD = p.derived?.priceMin ?? null;
   const priceConverted = priceIQD != null ? truncate2(priceIQD * rate) : null;
@@ -836,12 +1032,10 @@ exports.getProduct = catchAsyncErrors(async (req, res, next) => {
     const title = p.remote?.originalName;
 
     const shopIds = getShopIdsForPlatform(p.remote?.platform);
-    const pricingCfg = fixedPricingConfig();
-    const country = pricingCfg.forcedPricing
-      ? pricingCfg.forcedCountryCode
-      : (req.user && req.user.countryCode) ||
-        process.env.ITAD_DEFAULT_COUNTRY ||
-        "US";
+    const country =
+      (req.user && req.user.countryCode) ||
+      process.env.ITAD_DEFAULT_COUNTRY ||
+      "US";
     try {
       const deal = await getOfficialDealForTitle(title, {
         country,
@@ -887,7 +1081,7 @@ exports.getProduct = catchAsyncErrors(async (req, res, next) => {
       images: p.overrides?.images || p.remote?.images,
 
       // our store price
-      currency,
+      currency: toFrontendCurrency(currency),
       priceMinIQD: priceIQD,
       priceMin: priceConverted,
 
@@ -930,6 +1124,8 @@ exports.getProduct = catchAsyncErrors(async (req, res, next) => {
       // discountVsOfficial,
 
       remote: p.remote,
+
+      seo: buildProductSeoDetail({ productRow: p, kinguinId: p.id }),
     },
   });
 });

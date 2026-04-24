@@ -9,9 +9,18 @@ module.exports = (sequelize, DataTypes) => {
       unitPrice: DataTypes.FLOAT,
       products: { type: DataTypes.JSONB, defaultValue: [] },
       merchants: DataTypes.UUID,
+      merchantDiscountType: DataTypes.STRING,
+      merchantDiscountValue: DataTypes.FLOAT,
+      merchantDiscountAmount: { type: DataTypes.FLOAT, defaultValue: 0 },
+      waylLink: DataTypes.STRING,
       coupon: DataTypes.STRING,
       discount: { type: DataTypes.FLOAT, defaultValue: 0 },
       totalPrice: { type: DataTypes.FLOAT, allowNull: false },
+      paymentCurrency: {
+        type: DataTypes.STRING(3),
+        allowNull: false,
+        defaultValue: "IQD",
+      },
       waylReference: { type: DataTypes.STRING, allowNull: false },
       country: { type: DataTypes.STRING, defaultValue: "IQ" },
       waylPaymentStatus: {
@@ -42,6 +51,12 @@ module.exports = (sequelize, DataTypes) => {
     if (models.Users) {
       Order.belongsTo(models.Users, { foreignKey: "user", as: "userRef" });
       Order.belongsTo(models.Users, { foreignKey: "merchants", as: "merchantRef" });
+    }
+    if (models.MerchantPurchaseLog) {
+      Order.hasMany(models.MerchantPurchaseLog, {
+        foreignKey: "orderId",
+        as: "merchantPurchaseLogs",
+      });
     }
   };
 

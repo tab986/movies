@@ -18,22 +18,17 @@ exports.buySync = async (req, res, next) => {
       .toString(36)
       .slice(2)}`;
     const quantity = Number(kinguinProduct.qty);
-    const unitPrice = Number(kinguinProduct.price);
-    const totalPrice = unitPrice * quantity;
 
     const order = await Order.create({
       user: userId,
       product: String(kinguinProduct.kinguinId),
       quantity,
-      unitPrice,
       products: [
         {
           product: String(kinguinProduct.kinguinId),
           quantity,
-          unitPrice,
         },
       ],
-      totalPrice,
       waylReference: syncReference,
       waylPaymentStatus: "paid",
       status: "pending",

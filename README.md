@@ -65,6 +65,7 @@ A Node.js/Express backend for an Iraqi e-shop selling digital game keys, gift ca
    - [imageUploadMiddleware.js](#imageuploadmiddlewarejs)
    - [itadClient.js](#itadclientjs)
    - [platforms.js](#platformsjs)
+   - [productSeo.js](#productseojs)
    - [s3Utils.js & deleteR2File.js](#s3utilsjs--deleter2filejs)
    - [deletefiles.js](#deletefilesjs)
    - [parseJsonBodyMiddleware.js](#parsejsonbodymiddlewarejs)
@@ -151,6 +152,7 @@ game-wise-backend-v3/
 │   ├── imageUploadMiddleware.js # Image upload to R2
 │   ├── itadClient.js          # IsThereAnyDeal API client
 │   ├── platforms.js           # Platform normalization
+│   ├── productSeo.js          # SEO meta + sitemap hints for public product JSON
 │   ├── s3Utils.js             # R2/S3 file deletion
 │   ├── deleteR2File.js        # R2 file deletion (duplicate)
 │   ├── deletefiles.js         # Local file deletion
@@ -225,6 +227,7 @@ Configures the Express application: security, middleware, and route mounting.
 - `/api/v1/sync` — Sync profile, delta run, import, reconcile (`routes/syncRoutes.js`).
 - *(rate limiter applies here)*
 - `/api/v1/users` — Auth and profiles.
+- `/api/v1/merchant` — Merchant signup/login, purchase log, analytics (`routes/merchantRoutes.js`).
 - `/api/v1/dashboard` — Admin dashboard (JWT + admin role on protected routes).
 - `/api/v1/orders` — Checkout and orders.
 - `/api/v1/products` — Public product catalog (`routes/productsRoutes.js`).
@@ -255,7 +258,7 @@ Fields:
   email            (String)          — Email (optional, lowercase)
   isActive         (Boolean)         — Soft delete flag (default: true)
   profileImage     (String)          — URL to profile picture on R2
-  role             (String, enum)    — "user", "admin", or "seller"
+  role             (String, enum)    — "user", "admin", "seller", or "merchant"
   password         (String)          — Hashed password (hidden from queries)
   passwordChangedAt (Date)           — When password was last changed
   passwordResetToken (String)        — Hashed reset token
@@ -692,13 +695,14 @@ listProducts (GET /api/v1/products)
   3. IQD → visitor currency via convertFromIQD (IP / config)
   4. Optional batch ITAD refresh for official-store pricing (skipped when `q` search is used)
   5. Large JSON payload per item (includes `remote` for debugging)
+  6. Each item includes `seo`: `{ lastModified, path }` for sitemap `lastmod` (ISO 8601 from row `updatedAt`) and a stable storefront path (`/games/:kinguinId`), without repeating full descriptions on list rows.
 
 listGiftCards (GET /api/v1/products/gift-cards)
   Sets isCard=true and delegates to listProducts.
 
 listGanraGames (GET /api/v1/products/ganraGames)
   Requires genres. Same WHERE as listProducts; **no** ITAD batch refresh.
-  Response items: kinguinId, name, genres, image, currency, price, priceMinIQD, priceFormatted, flags.
+  Response items: kinguinId, name, genres, image, currency, price, priceMinIQD, priceFormatted, flags, and `seo` (same shape as listProducts).
 
 listNewGames (GET /api/v1/products/new-games)
   Defaults release window and sort, then delegates to listProducts.
@@ -712,6 +716,7 @@ getProduct (GET /api/v1/products/:kinguinId)
   3. Converts price to user's currency
   4. Refreshes ITAD official store price if older than 48 hours
   5. Returns full product details
+  6. Response `data.seo` (from `utils/productSeo.js`): `title`, `description` (HTML stripped, ~160 chars), cover `image` URL, `robots` (`index, follow`), `path` (`/games/:kinguinId`), `canonicalUrl` (absolute URL when `STOREFRONT_PUBLIC_URL` is set, otherwise `null`)
 
 patchOverrides (PATCH /api/v1/dashboard/products/:kinguinId/overrides)
   Admin (dashboard) endpoint to customize product display.
@@ -890,6 +895,18 @@ delete            — DELETE (admin): 204 on success
 | GET | `/me/details` | JWT | `userProfile.getMyProfileDetails` | Get own profile |
 | DELETE | `/me` | JWT | `userProfile.deleteMe` | Deactivate account |
 
+### merchantRoutes.js
+
+**Base path:** `/api/v1/merchant`
+
+| Method | Path | Auth | Handler | Description |
+|--------|------|------|---------|-------------|
+| POST | `/signup` | Public | `authControllers.signup("merchant")` | Register merchant (requires `storeName`; creates `merchants` profile) |
+| POST | `/login` | Public | `authControllers.login("merchant")` | Login; user must have `role: merchant` |
+| GET | `/purchase-log` | JWT merchant | `merchantController.getMyPurchaseLog` | Paginated purchase log (`?page`, `?limit`, `?from`, `?to`) |
+| GET | `/analytics/summary` | JWT merchant | `merchantController.getMyAnalyticsSummary` | Totals: gain (base IQD), loss/earnings (discount IQD), order/item counts |
+| GET | `/analytics/most-bought` | JWT merchant | `merchantController.getMyMostBoughtItems` | Top products by quantity (`?limit`, `?from`, `?to`) |
+
 ### orderRoutes.js
 
 **Base path:** `/api/v1/orders`
@@ -897,7 +914,7 @@ delete            — DELETE (admin): 204 on success
 | Method | Path | Auth | Handler | Description |
 |--------|------|------|---------|-------------|
 | POST | `/wayl-callback` | Public (Wayl) | `orderCtrl.waylCallback` | Payment webhook from Wayl |
-| POST | `/checkout` | JWT | `orderCtrl.checkout` | Create order and get payment link |
+| POST | `/checkout` | JWT | `orderCtrl.checkout` | Create order and get payment link; merchants with an active discount get automatic IQD discount before coupons; per-line rows go to `merchant_purchase_logs` |
 | GET | `/my` | JWT | `orderCtrl.myOrders` | List my orders |
 | GET | `/:id` | JWT | `orderCtrl.getOrder` | Get order with keys |
 
@@ -913,14 +930,70 @@ delete            — DELETE (admin): 204 on success
 | GET | `/new-games` | Public | `productsControllers.listNewGames` | Recent releases (default sort `releaseDate` desc, last 8 years window unless overridden) |
 | GET | `/ganraGames` | Public | `productsControllers.listGanraGames` | **Compact** genre listing: `genres` **required**; returns name, price, genres, image, `flags`; same filters as `/` except response shape |
 | GET | `/gift-cards` | Public | `productsControllers.listGiftCards` | Same as `/` with `isCard=true` (gift cards / prepaid) |
+| POST | `/best-deals` | Public | `productsControllers.listBestDeals` | Returns top discounted games vs official `regularAmount`; requires `minDiscountPercent` in body, optional `limit` (default 20, clamped 1..100), sorted by metacritic score then savings |
 | GET | `/popular-games` | Public | `productsControllers.listPopularGames` | ITAD “popular games” feed (external API; not the local DB catalog) |
 | GET | `/ads` | Public | `adsControllers.getAds` | List advertisements |
 | GET | `/ads/:id` | Public | `adsControllers.getAd` | Get single ad |
 | GET | `/:kinguinId` (numeric only) | Public | `productsControllers.getProduct` | Get product details |
 
+**SEO:** Main catalog list endpoints (`/`, `/search`, `/new-games`, `/gift-cards`, `/ganraGames`) attach per-item `seo` (`lastModified`, `path`) for sitemap generation; detail `GET /:kinguinId` includes full `data.seo` (title, description, image, robots, `path`, optional `canonicalUrl` when `STOREFRONT_PUBLIC_URL` is set). `/suggest` does not include `seo`. Implemented in [`utils/productSeo.js`](#productseojs).
+
 Compatibility note: `/api/v1/products/search` (full listing alias) and `/api/v1/products/suggest` (autocomplete endpoint) are both kept during frontend migration. Keep `/search` for legacy clients and migrate typeahead flows to `/suggest`.
 
 **`ganraGames` query params:** `genres` (comma-separated, **required**). Other filters match the main list (`page`, `limit`, `q`, `regionId`, `priceFrom`, `priceTo`, `tags`, `sortBy`, `sortType`, etc.).
+
+Optional edition-mode params:
+
+- `uniqueEdition` (`true|false`, default `false`): when `true`, the response keeps one item per normalized base title and removes duplicate editions (deluxe/gold/ultimate/etc. variants).
+- `preferredEdition` (`regular|cheapest`, default `regular`): selection rule used only when `uniqueEdition=true`.
+  - `regular`: prefer a regular/base candidate first, fallback to cheapest by `derived.priceMin`.
+  - `cheapest`: always pick the cheapest candidate by `derived.priceMin`.
+
+Default behavior is unchanged unless `uniqueEdition=true`.
+
+Examples:
+
+- Full set (existing behavior):
+  - `GET /api/v1/products/ganraGames?genres=Action,RPG`
+- One item per game, regular/base prioritized:
+  - `GET /api/v1/products/ganraGames?genres=Action,RPG&uniqueEdition=true&preferredEdition=regular`
+- One item per game, always cheapest:
+  - `GET /api/v1/products/ganraGames?genres=Action,RPG&uniqueEdition=true&preferredEdition=cheapest`
+
+**`best-deals` body (`POST /api/v1/products/best-deals`):**
+
+- `minDiscountPercent` (required number): `0..100`
+- `limit` (optional integer): defaults to `20`, clamped to `1..100`
+
+Behavior:
+
+- Excludes rows without valid `officialStore.regularAmount` (`> 0`)
+- Excludes rows without valid `derived.priceMin` and valid `remote.metacriticScore`
+- Requires visible + in-stock products only
+- Discount rule: `((regularAmount - priceMin) / regularAmount) * 100 >= minDiscountPercent`
+- Sort order: `metacriticScore DESC`, then `savingsPercent DESC`, then `id ASC`
+
+Response items include: `kinguinId`, `name`, `image`, `priceMin`, `originalPrice`, `metacriticScore`, `savingsPercent`, and `seo.path` (under `seo`).
+
+Example request bodies:
+
+```json
+{ "minDiscountPercent": 50, "limit": 10 }
+```
+
+```json
+{ "minDiscountPercent": 35.5 }
+```
+
+Invalid examples:
+
+```json
+{ "minDiscountPercent": -1 }
+```
+
+```json
+{ "minDiscountPercent": 20, "limit": "abc" }
+```
 
 ### articlesRoutes.js
 
@@ -947,14 +1020,25 @@ No JWT required. Drafts are never exposed here.
 | GET | `/products/:kinguinId` | Admin | `productsControllers.getProduct` | Get product |
 | PATCH | `/products/:kinguinId/overrides` | Admin | `productsControllers.patchOverrides` | Override product data |
 | GET | `/orders` | Admin | `ordersControllers.getOrders` | List all orders |
+| POST | `/orders/giveaway` | Admin | `ordersControllers.grantGiveawayOrder` | Grant a paid giveaway order to a user and place it on Kinguin |
 | GET | `/orders/:orderId` | Admin | `ordersControllers.getOrder` | Get order |
 | PATCH | `/orders/:orderId` | Admin | `ordersControllers.updateOrder` | Update order |
 | DELETE | `/orders/:orderId` | Admin | `ordersControllers.deleteOrder` | Delete order |
-| GET | `/users` | Admin | User CRUD | List users |
+| GET | `/users` | Admin | User CRUD | List users (`?includeMerchant=true` includes `merchantProfile`) |
 | POST | `/users` | Admin | User CRUD | Create user |
 | GET | `/users/:id` | Admin | User CRUD | Get user |
-| PATCH | `/users/:id` | Admin | User CRUD | Update user |
+| PATCH | `/users/:id/role` | Admin | `userDashboardController.updateUserRoleAdmin` | Change user role (`user/admin/seller/merchant`); promoting to merchant requires `storeName` |
+| PATCH | `/users/:id` | Admin | User CRUD | Update user (role changes are rejected; use `/users/:id/role`) |
 | DELETE | `/users/:id` | Admin | User CRUD | Delete user |
+| GET | `/merchants` | Admin | `merchantDashboardController.listMerchants` | List merchant profiles |
+| POST | `/merchants` | Admin | `merchantDashboardController.createMerchant` | Create user (`role: merchant`) + merchant row |
+| GET | `/merchants/:id` | Admin | `merchantDashboardController.getMerchant` | Get merchant + user |
+| PATCH | `/merchants/:id` | Admin | `merchantDashboardController.updateMerchant` | Update merchant profile |
+| DELETE | `/merchants/:id` | Admin | `merchantDashboardController.deleteMerchant` | Delete merchant row; demote user to `user` |
+| PATCH | `/merchants/:id/discount` | Admin | `merchantDashboardController.updateMerchantDiscount` | Set permanent discount (`percent` or fixed IQD) |
+| GET | `/merchants/:id/purchase-log` | Admin | `merchantController.getMerchantPurchaseLogAdmin` | Merchant purchase log |
+| GET | `/merchants/:id/analytics/summary` | Admin | `merchantController.getMerchantAnalyticsSummaryAdmin` | Merchant analytics summary |
+| GET | `/merchants/:id/analytics/most-bought` | Admin | `merchantController.getMerchantMostBoughtAdmin` | Most-bought items for merchant |
 | GET | `/ads` | Admin | Ads CRUD | List ads |
 | POST | `/ads` | Admin | Image + Ads CRUD | Create ad |
 | GET | `/ads/:adId` | Admin | Ads CRUD | Get ad |
@@ -967,6 +1051,20 @@ No JWT required. Drafts are never exposed here.
 | DELETE | `/articles/:id` | Admin | `articleController.delete` | Delete article |
 
 Article routes use `requireDbReady({ dependency: "articles" })` like other catalog-backed dashboard endpoints.
+
+`POST /api/v1/dashboard/orders/giveaway` body:
+
+- `userId` (required, UUID): recipient user ID.
+- `productId` (required, number): Kinguin product ID to gift.
+- `qty` (optional, positive integer, default `1`): gifted quantity.
+
+Auth: admin JWT only (`protect` + `onlyPermission("admin")`).
+
+Behavior:
+
+- Creates an order for the target user with `waylPaymentStatus: "paid"` and no Wayl checkout link.
+- Submits the item to Kinguin immediately and stores `kinguinOrderId`.
+- Marks the order `status: "kingwin"` on successful Kinguin placement, so it appears in `GET /api/v1/orders/my` (same status filter as normal paid purchases, and later `completed` when keys are delivered).
 
 ### syncRoutes.js
 
@@ -1273,6 +1371,19 @@ getShopIdsForPlatform() — Returns ITAD shop IDs for a platform
   Example: "PC Steam" → [61], "PC Epic Games" → [16]
 ```
 
+### productSeo.js
+
+Builds **SEO** and **sitemap-oriented** fields for public product JSON (`GET /api/v1/products`, `GET /api/v1/products/ganraGames`, `GET /api/v1/products/:kinguinId`). No new routes; helpers are used from `productControllers.js`.
+
+```
+stripHtmlToText / truncateMetaDescription — Plain-text meta description from HTML
+resolveCoverImageUrl — Cover image URL (overrides vs remote.images.cover)
+buildProductSeoDetail — Full `seo` object on product detail
+buildProductSeoListItem — `{ lastModified, path }` on each list row
+```
+
+Optional env: **`STOREFRONT_PUBLIC_URL`** — public site origin (no trailing slash required); when set, detail responses include absolute `seo.canonicalUrl`. If unset, `canonicalUrl` is `null` and clients may join `path` with their own base URL.
+
 ### s3Utils.js & deleteR2File.js
 
 Delete files from Cloudflare R2 storage. Both files export the same function.
@@ -1411,6 +1522,9 @@ ENABLE_INTERNAL_SCHEDULER — "true" to enable internal cron
 # Pricing
 EUR_TO_IQD               — EUR to IQD exchange rate (default: 1535)
 IQD_MARKUP               — Fixed markup in IQD (default: 5800)
+
+# Storefront / SEO (optional)
+STOREFRONT_PUBLIC_URL    — Public website origin for product `seo.canonicalUrl` (e.g. https://yoursite.com). Omit trailing slash. If unset, `canonicalUrl` is null and the frontend can build absolute URLs from `seo.path`.
 
 # Webhooks
 WEBHOOK_SECRET           — Secret for Kinguin webhook verification

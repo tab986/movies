@@ -22,9 +22,23 @@ const mongoSanitize = require("express-mongo-sanitize");
 const xss = require("xss-clean");
 const hpp = require("hpp");
 const cors = require("cors");
+const cookieParser = require("cookie-parser");
 const bodyParser = require("body-parser");
 
 const app = exp();
+const DEFAULT_ALLOWED_ORIGINS = [
+  "https://www.gamewiseiq.com",
+  "https://gamewiseiq.com",
+  "http://localhost:3000",
+];
+const allowedOrigins = (
+  process.env.CORS_ALLOWED_ORIGINS ||
+  process.env.FRONTEND_URL ||
+  DEFAULT_ALLOWED_ORIGINS.join(",")
+)
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean);
 
 //security
 const limiter = rateLimit({
@@ -49,11 +63,18 @@ app.use(hpp());
 // Replace with your frontend's URL
 app.use(
   cors({
-    origin: "*", // Allow requests from any origin
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error(`CORS blocked for origin: ${origin}`));
+    },
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"], // Allow all common methods
-    credentials: false, // Cannot be true when origin is '*'
+    credentials: true,
   })
 );
+
+app.use(cookieParser());
 
 // Trust only the first proxy (Render's reverse proxy)
 app.set("trust proxy", 1);
@@ -212,6 +233,9 @@ app.use("/api/v1/sync", syncRoutes);
 app.use(limiter);
 
 app.use("/api/v1/users", userRoutes);
+
+const merchantRoutes = require("./routes/merchantRoutes");
+app.use("/api/v1/merchant", merchantRoutes);
 
 app.use("/api/v1/dashboard", dashboardRoutes);
 app.use("/api/v1/orders", orderRoutes);

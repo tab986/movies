@@ -33,6 +33,10 @@ async function initDatabaseTables() {
 
   try {
     await sequelize.sync();
+    await sequelize.query(`
+      ALTER TABLE orders
+      ADD COLUMN IF NOT EXISTS "paymentCurrency" VARCHAR(3) NOT NULL DEFAULT 'IQD';
+    `);
     await sequelize.query(`CREATE EXTENSION IF NOT EXISTS pg_trgm;`);
     await sequelize.query(`
       CREATE INDEX IF NOT EXISTS idx_kinguin_price_min_num

@@ -1,4 +1,11 @@
-const { Order, KinguinProduct, Coupon } = require("../post-models");
+const {
+  Order,
+  KinguinProduct,
+  Coupon,
+  Users,
+  Merchant,
+  MerchantPurchaseLog,
+} = require("../post-models");
 const axios = require("axios");
 const crypto = require("crypto");
 const factory = require("../utils/handlerFactory");
@@ -9,14 +16,22 @@ const { stat } = require("fs");
 const { fetchKinguinProductById } = require("../lib/kinguinClient");
 const { Op } = require("sequelize");
 const { applyCoupon } = require("../utils/coupon.js");
+const { computeMerchantLineDiscount } = require("../utils/merchantDiscount.js");
 // Wayl config
 const WAYL_AUTH_KEY = process.env.WAYL_AUTH_KEY; // set in your .env
 const WAYL_BASE = process.env.WAYL_BASE || "https://api.thewayl.com/api/v1";
+const WAYL_WEBHOOK_URL = process.env.WAYL_WEBHOOK_URL || process.env.WAYL_r;
+const WAYL_REDIRECTION_URL =
+  process.env.WAYL_REDIRECT_URL || "https://www.gamewiseiq.com/my-orders";
+const WAYL_SECRET = process.env.WAYL_SECRET;
 
 // Helper to verify Wayl webhook signature
 function verifyWaylSignature(req) {
   const signature = req.headers["x-wayl-signature-256"];
-  const expected = crypto.createHmac("sha256", process.env.WAYL_SECRET).update(json.stringify(req.body)).digest("hex");
+  const expected = crypto
+    .createHmac("sha256", process.env.WAYL_SECRET)
+    .update(JSON.stringify(req.body))
+    .digest("hex");
   return signature === expected;
 }
 const KINGUIN_API_BASE =
@@ -255,40 +270,81 @@ async function consumeCouponUsageForOrder(order) {
   coupon.users = [...new Set([...normalizedUsers, orderUserId])];
   await coupon.save();
 }
+
+/**
+ * Wayl link API validates currency=IQD and total>=1000. Checkout still computes
+ * FX for display; only the HTTP body to Wayl uses IQD from the basket.
+ */
+function buildWaylPaymentPayload(payment) {
+  const sourceAmountIQD = Number(payment?.sourceAmountIQD);
+  const payAmount = Number(payment?.amount);
+  const payCurrency = String(payment?.currency || "").toUpperCase();
+
+  let totalIqd;
+  if (Number.isFinite(sourceAmountIQD) && sourceAmountIQD > 0) {
+    totalIqd = Math.round(sourceAmountIQD);
+  } else if (payCurrency === "IQD" && Number.isFinite(payAmount) && payAmount > 0) {
+    totalIqd = Math.round(payAmount);
+  } else {
+    throw new Error(
+      "Cannot build Wayl payload: missing IQD basket total (sourceAmountIQD)"
+    );
+  }
+
+  if (totalIqd < 1000) {
+    throw new appError(
+      "Order total must be at least 1000 IQD for payment (Wayl minimum)",
+      400
+    );
+  }
+
+  return {
+    total: totalIqd,
+    currency: "IQD",
+    lineItemAmount: totalIqd,
+  };
+}
+
 // Create payment link via Wayl
-async function createWaylLink(referenceId, amount, productName, image, req) {
-  // base (IQD from your system)
-  const iqd = Number(amount);
-  if (!Number.isFinite(iqd) || iqd <= 0) throw new Error("Invalid amount");
+async function createWaylLink(referenceId, payment, productName, image) {
+  const payAmount = Number(payment?.amount);
+  const payCurrency = String(payment?.currency || "").toUpperCase();
+  const sourceAmountIQD = Number(payment?.sourceAmountIQD);
+  const conversionRate = Number(payment?.rate);
+  const usedFallback = Boolean(payment?.fxFallback);
 
-  // FX: detect target currency from IP (or ?currency / x-currency override)
-  const fx = await convertFromIQD(req, iqd);
-  console.log("FX result:", fx ,":",typeof fx);
-  // first 2 decimals (truncate, not round)
-  const truncate2 = (n) => Math.trunc(Number(n) * 100) / 100;
+  if (!WAYL_AUTH_KEY || !String(WAYL_AUTH_KEY).trim()) {
+    throw new Error("WAYL_AUTH_KEY missing");
+  }
+  if (!WAYL_WEBHOOK_URL || !String(WAYL_WEBHOOK_URL).trim()) {
+    throw new Error("WAYL_WEBHOOK_URL missing");
+  }
+  if (!WAYL_SECRET || !String(WAYL_SECRET).trim()) {
+    throw new Error("WAYL_SECRET missing");
+  }
 
-  // Decide what to send to Wayl:
-  // - If FX succeeded → use detected currency + converted amount
-  // - If FX failed or stayed IQD → fall back to IQD + original amount
-  const payCurrency = fx.fxFallback ? "IQD" : fx.currency || "IQD";
-  const payAmount =
-    fx.fxFallback || payCurrency === "IQD" ? iqd : truncate2(fx.amount);
+  const wayl = buildWaylPaymentPayload(payment);
+  const normalizedAmount = wayl.lineItemAmount;
+
+  const lineItem = {
+    label: productName || "Basket Value",
+    amount: normalizedAmount,
+    type: "increase",
+  };
+  if (image && String(image).trim()) {
+    lineItem.image = String(image).trim();
+  }
 
   const payload = {
     referenceId: String(referenceId),
-    total: iqd, // converted amount (or IQD fallback)
-    currency: "IQD", // detected currency (or IQD fallback)
-    lineItem: [
-      {
-        label: productName || "Basket Value",
-        type: "increase",
-        amount: payAmount || 0.00,
-        image: image || "",
-      },
-    ],
-    webhookUrl: process.env.WAYL_r,
-    redirectionUrl: "https://www.gamewiseiq.com/my-orders",
-    webhookSecret: process.env.WAYL_SECRET,
+    total: wayl.total,
+    currency: wayl.currency,
+    lineItem: [lineItem],
+    lineItems: [lineItem],
+    webhookUrl: WAYL_WEBHOOK_URL,
+    redirectUrl: WAYL_REDIRECTION_URL,
+    redirectionUrl: WAYL_REDIRECTION_URL,
+    webhookSecret: WAYL_SECRET,
   };
 
 
@@ -298,40 +354,53 @@ async function createWaylLink(referenceId, amount, productName, image, req) {
       timeout: 15000,
     });
 
-    // Append currency param to link (?currency=xxx)
+    // Append currency param to link (?currency=xxx) — match Wayl payload (IQD)
     if (res?.data?.url) {
       try {
         const u = new URL(res.data.url);
-        u.searchParams.set("currency", String(payCurrency).toLowerCase());
+        u.searchParams.set("currency", String(wayl.currency).toLowerCase());
         res.data.url = u.toString();
       } catch {
         res.data.url =
           res.data.url +
           (res.data.url.includes("?") ? "&" : "?") +
-          `currency=${encodeURIComponent(String(payCurrency).toLowerCase())}`;
+          `currency=${encodeURIComponent(String(wayl.currency).toLowerCase())}`;
       }
     }
 
-    // Optional: include FX info for your UI/logs
+    // Optional: include FX info for your UI/logs (Wayl billed IQD separately)
     res.data.fxPreview = {
-      fromIQD: iqd,
+      fromIQD: sourceAmountIQD,
       currency: payCurrency,
-      rate: fx.fxFallback ? 1 : fx.rate,
+      rate: Number.isFinite(conversionRate) ? conversionRate : null,
       amount: payAmount,
-      fallback: !!fx.fxFallback,
+      fallback: usedFallback,
+      waylBilled: { total: wayl.total, currency: wayl.currency },
     };
 
     return res.data; // { url, linkId, referenceId, ..., fxPreview }
   } catch (err) {
     const status = err.response?.status;
     const data = err.response?.data;
+    const details = data?.details || data?.errors || data?.fields || null;
     console.error(
       "Wayl create link error:",
       status,
       JSON.stringify(data, null, 2)
     );
-    console.log("payload", payload , "gg");
-    throw err;
+    if (details) {
+      console.error("Wayl validation details:", JSON.stringify(details, null, 2));
+    }
+    console.error("Wayl payload sent:", payload);
+    throw new Error(
+      `Wayl create link failed (${status || "no-status"}): ${
+        data?.message ||
+        data?.error ||
+        (details ? JSON.stringify(details) : null) ||
+        JSON.stringify(data) ||
+        err.message
+      }`
+    );
   }
 }
 
@@ -373,6 +442,42 @@ exports.checkout = async (req, res, next) => {
       }
     }
 
+    const dbUser = await Users.findByPk(userId);
+    let merchantProfile = null;
+    if (dbUser && dbUser.role === "merchant") {
+      merchantProfile = await Merchant.findOne({ where: { userId } });
+    }
+
+    let merchantDiscountTotal = 0;
+    const lineMerchantMeta = [];
+    if (merchantProfile && merchantProfile.status === "active" && orderItems.length > 0) {
+      for (const itm of orderItems) {
+        const { discountAmount, discountType, discountValue } =
+          computeMerchantLineDiscount(
+            itm.unitPrice,
+            itm.quantity,
+            merchantProfile
+          );
+        lineMerchantMeta.push({
+          product: itm.product,
+          quantity: itm.quantity,
+          unitPrice: itm.unitPrice,
+          discountAmount,
+          discountType,
+          discountValue,
+        });
+        merchantDiscountTotal += discountAmount;
+      }
+      total = Math.max(0, total - merchantDiscountTotal);
+    }
+
+    let merchantDiscountType = null;
+    let merchantDiscountValue = null;
+    if (merchantDiscountTotal > 0 && merchantProfile) {
+      merchantDiscountType = merchantProfile.discountType;
+      merchantDiscountValue = merchantProfile.discountValue;
+    }
+
     let discountAmount = 0;
     let appliedCouponCode = null;
     if (couponCode && String(couponCode).trim() !== "") {
@@ -407,14 +512,27 @@ exports.checkout = async (req, res, next) => {
       });
     }
 
+    const fx = await convertFromIQD(req, total);
+    const paymentCurrency = fx.currency;
+    const paymentTotal =
+      paymentCurrency === "IQD"
+        ? Math.round(Number(fx.amount))
+        : Number(Number(fx.amount).toFixed(2));
+
     // Construct order document
     const waylRef = `WAYL-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const orderData = {
       user: userId,
-      totalPrice: total,
+      totalPrice: paymentTotal,
+      paymentCurrency,
       discount: discountAmount,
       coupon: appliedCouponCode,
       waylReference: waylRef,
+      country: fx.countryCode,
+      merchants: merchantProfile ? userId : null,
+      merchantDiscountType,
+      merchantDiscountValue,
+      merchantDiscountAmount: merchantDiscountTotal,
       products: orderItems.map((itm) => ({
         product: String(itm.product.id),
         quantity: itm.quantity,
@@ -424,6 +542,38 @@ exports.checkout = async (req, res, next) => {
     console.log("orderData", orderData);
     
     const order = await Order.create(orderData);
+
+    if (merchantProfile && lineMerchantMeta.length > 0) {
+      for (const line of lineMerchantMeta) {
+        const p = line.product;
+        const lineBase = line.unitPrice * line.quantity;
+        const name =
+          p?.remote?.name ||
+          p?.overrides?.name ||
+          String(p?.id ?? "");
+        const finalUnit =
+          line.quantity > 0
+            ? (lineBase - line.discountAmount) / line.quantity
+            : line.unitPrice;
+        await MerchantPurchaseLog.create({
+          merchantId: merchantProfile.id,
+          merchantUserId: userId,
+          userId,
+          orderId: order.id,
+          productId: String(p.id),
+          productName: name,
+          quantity: line.quantity,
+          baseUnitPriceIQD: line.unitPrice,
+          discountType: line.discountType,
+          discountValue: line.discountValue,
+          discountAmountIQD: line.discountAmount,
+          finalUnitPriceIQD: finalUnit,
+          gainIQD: lineBase,
+          lossIQD: line.discountAmount,
+          earningIQD: line.discountAmount,
+        });
+      }
+    }
 
     // Compose label and image for Wayl. For carts use a generic label and the first
     // product’s cover image; for a single item use its name and cover image.
@@ -436,10 +586,15 @@ exports.checkout = async (req, res, next) => {
     }
     const waylResponse = await createWaylLink(
       waylRef,
-      total,
+      {
+        amount: paymentTotal,
+        currency: paymentCurrency,
+        sourceAmountIQD: total,
+        rate: fx.rate,
+        fxFallback: fx.fxFallback,
+      },
       label,
-      image,
-      req
+      image
     );
     // Persist the generated payment link
     const payUrl = waylResponse.data?.url || waylResponse?.url;
@@ -612,6 +767,87 @@ exports.waylCallback = async (req, res, next) => {
 
 exports.submitKinguinOrderByProductId = submitKinguinOrderByProductId;
 exports.prepareKinguinOrderProduct = buildKinguinOrderProduct;
+
+exports.grantGiveawayOrder = async (req, res, next) => {
+  try {
+    const { userId, productId, qty = 1 } = req.body || {};
+
+    if (!userId) {
+      return res
+        .status(400)
+        .json({ status: "fail", message: "userId is required" });
+    }
+    if (!productId) {
+      return res
+        .status(400)
+        .json({ status: "fail", message: "productId is required" });
+    }
+
+    const quantity = Number(qty);
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      return res.status(400).json({
+        status: "fail",
+        message: "qty must be a positive integer",
+      });
+    }
+
+    const targetUser = await Users.findByPk(userId);
+    if (!targetUser) {
+      return res
+        .status(404)
+        .json({ status: "fail", message: "Target user not found" });
+    }
+
+    const preparedProduct = await buildKinguinOrderProduct({
+      productId,
+      qty: quantity,
+    });
+
+    const giveawayReference = `GIVEAWAY-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+
+    const order = await Order.create({
+      user: userId,
+      product: String(preparedProduct.kinguinId),
+      quantity,
+      unitPrice: preparedProduct.price,
+      products: [
+        {
+          product: String(preparedProduct.kinguinId),
+          quantity,
+          unitPrice: preparedProduct.price,
+        },
+      ],
+      totalPrice: preparedProduct.price * quantity,
+      waylReference: giveawayReference,
+      waylPaymentStatus: "paid",
+      status: "pending",
+    });
+
+    const kinguinOrderResponse = await submitKinguinOrderByProductId({
+      productId: preparedProduct.kinguinId,
+      qty: quantity,
+      orderExternalId: String(order.id),
+      kinguinProduct: preparedProduct,
+    });
+
+    order.kinguinOrderId = kinguinOrderResponse.orderId;
+    order.status = "kingwin";
+    await order.save();
+
+    return res.status(201).json({
+      status: "success",
+      data: {
+        orderId: order.id,
+        userId,
+        kinguinOrderId: order.kinguinOrderId,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
 
 // List current user's orders
 exports.myOrders = async (req, res) => {
