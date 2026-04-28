@@ -12,10 +12,16 @@ const normalizeCouponCode = (rawCode) => String(rawCode || '').trim().toUpperCas
 // it needs the type, value, and expiresAt in the body of the request
 router.post('/create', async (req, res) => {
     try {
-     const newCoupon =   await createCoupon(req.body.type, req.body.value, req.body.expiresAt, req.body.codName);
+     const newCoupon =   await createCoupon(
+        req.body.type,
+        req.body.value,
+        req.body.expiresAt,
+        req.body.codName,
+        req.body.maxUsesPerUser
+      );
         res.status(201).json(newCoupon);
     } catch (err) {
-        res.status(500).json({ message: err.message });
+        res.status(400).json({ message: err.message });
     }
 });
 
@@ -84,8 +90,10 @@ router.get('/:code/users', async (req, res) => {
         const coupon = await getCouponByCanonicalCode(req, res);
         if (!coupon) return;
 
-        const userIds = (Array.isArray(coupon.users) ? coupon.users : [])
-            .map((id) => String(id));
+        const usageMap = coupon.userUsageByUserId && typeof coupon.userUsageByUserId === 'object'
+            ? coupon.userUsageByUserId
+            : {};
+        const userIds = Object.keys(usageMap).map((id) => String(id));
 
         if (userIds.length === 0) {
             res.status(200).json({
@@ -109,7 +117,8 @@ router.get('/:code/users', async (req, res) => {
             status: 'success',
             users: userIds.map((id) => ({
                 id,
-                fullName: userNameById.get(id) ?? null
+                fullName: userNameById.get(id) ?? null,
+                usageCount: Number(usageMap[id] || 0)
             }))
         });
     } catch (err) {
@@ -122,10 +131,12 @@ router.get('/:code/users/count', async (req, res) => {
         const coupon = await getCouponByCanonicalCode(req, res);
         if (!coupon) return;
 
-        const users = Array.isArray(coupon.users) ? coupon.users : [];
+        const usageMap = coupon.userUsageByUserId && typeof coupon.userUsageByUserId === 'object'
+            ? coupon.userUsageByUserId
+            : {};
         res.status(200).json({
             status: 'success',
-            count: users.length
+            count: Object.keys(usageMap).length
         });
     } catch (err) {
         res.status(500).json({ status: 'fail', message: err.message || 'Failed to fetch coupon user count' });

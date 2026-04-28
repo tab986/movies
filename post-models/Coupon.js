@@ -13,6 +13,20 @@ module.exports = (sequelize, DataTypes) => {
       expiresAt: DataTypes.DATE,
       active: { type: DataTypes.BOOLEAN, defaultValue: true },
       users: { type: DataTypes.JSONB, defaultValue: [] }, // array of user ids that have used the coupon
+      maxUsesPerUser: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 1,
+        validate: {
+          min: 1,
+          isInt: true,
+        },
+      },
+      userUsageByUserId: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: {},
+      },
     },
     {
       tableName: "coupons",
