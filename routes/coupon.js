@@ -2,7 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const { createCoupon, deleteCoupon , applyCoupon } = require('../utils/coupon.js');
-const { Op } = require('sequelize');
+const { Op, fn, col, where } = require('sequelize');
 const { Coupon, Users } = require('../post-models');
 
 const normalizeCouponCode = (rawCode) => String(rawCode || '').trim().toUpperCase();
@@ -68,7 +68,9 @@ const getCouponByCanonicalCode = async (req, res) => {
         return null;
     }
 
-    const coupon = await Coupon.findOne({ where: { code: canonicalCode } });
+    const coupon = await Coupon.findOne({
+        where: where(fn('UPPER', col('code')), canonicalCode)
+    });
     if (!coupon) {
         res.status(404).json({ status: 'fail', message: 'Coupon not found' });
         return null;

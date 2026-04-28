@@ -1,4 +1,5 @@
 const couponCode = require('coupon-code');
+const { fn, col, where } = require('sequelize');
 const { Coupon } = require('../post-models');
 
 const normalizeCouponCode = (rawCode) => String(rawCode || '').trim().toUpperCase();
@@ -33,7 +34,9 @@ async function applyCoupon(code, cartValue, userId) {
     }
 
     try {
-        const coupon = await Coupon.findOne({ where: { code: canonicalCode } });
+        const coupon = await Coupon.findOne({
+            where: where(fn('UPPER', col('code')), canonicalCode)
+        });
         if (!coupon) {
             throw new Error('Coupon not found');
         }
