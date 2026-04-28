@@ -285,6 +285,19 @@ async function consumeCouponUsageForOrder(order) {
   await coupon.save();
 }
 
+async function markOrderPaidAndConsumeCouponOnce(order) {
+  const wasAlreadyPaid = String(order?.waylPaymentStatus || "").toLowerCase() === "paid";
+  order.waylPaymentStatus = "paid";
+  order.status = "wayle";
+  await order.save();
+
+  if (!wasAlreadyPaid) {
+    await consumeCouponUsageForOrder(order);
+  }
+
+  return { couponConsumed: !wasAlreadyPaid };
+}
+
 /**
  * Wayl link API validates currency=IQD and total>=1000. Checkout still computes
  * FX for display; only the HTTP body to Wayl uses IQD from the basket.
@@ -676,11 +689,8 @@ exports.waylCallback = async (req, res, next) => {
       return res.status(200).json({ status: "success", idempotent: true });
     }
 
-    // Mark order as paid according to Wayl
-    order.waylPaymentStatus = "paid";
-    order.status = "wayle";
-    await order.save();
-    await consumeCouponUsageForOrder(order);
+    // Mark order as paid according to Wayl and consume coupon once for this order.
+    await markOrderPaidAndConsumeCouponOnce(order);
 
     // Build products payload for Kinguin API. Each entry needs
     // { kinguinId, qty, price } where price must match an available offer.
@@ -780,6 +790,7 @@ exports.waylCallback = async (req, res, next) => {
 
 exports.submitKinguinOrderByProductId = submitKinguinOrderByProductId;
 exports.prepareKinguinOrderProduct = buildKinguinOrderProduct;
+exports.markOrderPaidAndConsumeCouponOnce = markOrderPaidAndConsumeCouponOnce;
 
 exports.grantGiveawayOrder = async (req, res, next) => {
   try {

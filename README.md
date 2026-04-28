@@ -1095,11 +1095,23 @@ Behavior:
 |--------|------|------|-------------|
 | POST | `/create` | None in router | Create coupon (`type`, `value`, `expiresAt` in body) |
 | DELETE | `/delete` | None in router | Delete coupon by code (`req.body.code`) |
-| POST | `/apply` | None in router | Validate/apply coupon (`code`, `cartValue`, `userId`) |
+| POST | `/apply` | None in router | Validate/apply coupon for pricing preview (`code`, `cartValue`, `userId`); does **not** consume usage |
 | GET | `/:code/users` | None in router | List users associated with a coupon code |
 | GET | `/:code/users/count` | None in router | User count for a coupon |
 
 Protect `/create` and `/delete` in production (admin-only or internal tooling).
+
+Coupon redemption timing:
+
+- `POST /api/v1/coupon/apply` only validates eligibility and returns discount math for checkout pricing.
+- Per-user usage consumption happens after successful payment in `POST /api/v1/orders/wayl-callback`.
+- Callback retries are idempotent for coupon usage: the same finalized order does not consume again.
+
+Focused verification command:
+
+```bash
+npm run verify:coupon-redemption-timing
+```
 
 ### sellerRoutes.js
 

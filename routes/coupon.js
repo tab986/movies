@@ -56,10 +56,14 @@ router.post('/apply', async (req, res) => {
         const newCartValue = Math.max(0, parsedCartValue - discountAmount);
         res.status(200).json({
             status: 'success',
-            message: 'Coupon applied successfully',
+            message: 'Coupon validated and applied for pricing. Usage is consumed only after a successful order callback.',
             couponCode: couponResult?.code,
             discountAmount,
-            newCartValue
+            newCartValue,
+            usageConsumption: {
+                phase: 'order_callback_success',
+                consumedOnApply: false
+            }
         });
 
     } catch (err) {
