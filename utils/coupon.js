@@ -1,5 +1,8 @@
 const couponCode = require('coupon-code');
 const { Coupon } = require('../post-models');
+
+const normalizeCouponCode = (rawCode) => String(rawCode || '').trim().toUpperCase();
+
 async function generateCouponCode( ) {
     let code = null;
     let isUnique = false;
@@ -15,9 +18,9 @@ async function generateCouponCode( ) {
 }
 
 async function applyCoupon(code, cartValue, userId) {
-    const canonicalCode = couponCode.validate(code);
+    const canonicalCode = normalizeCouponCode(code);
     if (!canonicalCode) {
-        throw new Error('Invalid coupon code format');
+        throw new Error('Coupon code is required');
     }
 
     const amount = Number(cartValue);
@@ -74,8 +77,13 @@ async function applyCoupon(code, cartValue, userId) {
     }
 }
 
-async function createCoupon( type, value, expiresAt) {
-    const code = await generateCouponCode();
+async function createCoupon(type, value, expiresAt, codName) {
+    const customCode = normalizeCouponCode(codName);
+    const code = customCode || await generateCouponCode();
+    const existingCoupon = await Coupon.findOne({ where: { code } });
+    if (existingCoupon) {
+        throw new Error('Coupon code already exists');
+    }
     const coupon = await Coupon.create({ code:code, type, value, expiresAt });
     return coupon;
 }

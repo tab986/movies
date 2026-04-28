@@ -4,14 +4,15 @@ const router = express.Router();
 const { createCoupon, deleteCoupon , applyCoupon } = require('../utils/coupon.js');
 const { Op } = require('sequelize');
 const { Coupon, Users } = require('../post-models');
-const couponCode = require('coupon-code');
+
+const normalizeCouponCode = (rawCode) => String(rawCode || '').trim().toUpperCase();
 
 
 // Route to create a new coupon (Admin access required in a real system)
 // it needs the type, value, and expiresAt in the body of the request
 router.post('/create', async (req, res) => {
     try {
-     const newCoupon =   await createCoupon(req.body.type, req.body.value, req.body.expiresAt);
+     const newCoupon =   await createCoupon(req.body.type, req.body.value, req.body.expiresAt, req.body.codName);
         res.status(201).json(newCoupon);
     } catch (err) {
         res.status(500).json({ message: err.message });
@@ -61,9 +62,9 @@ router.post('/apply', async (req, res) => {
 });
 
 const getCouponByCanonicalCode = async (req, res) => {
-    const canonicalCode = couponCode.validate(req.params.code);
+    const canonicalCode = normalizeCouponCode(req.params.code);
     if (!canonicalCode) {
-        res.status(400).json({ status: 'fail', message: 'Invalid coupon code format' });
+        res.status(400).json({ status: 'fail', message: 'Coupon code is required' });
         return null;
     }
 
