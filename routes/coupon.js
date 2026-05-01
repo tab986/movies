@@ -1,7 +1,7 @@
 // routes/coupons.js (example using Express Router)
 const express = require('express');
 const router = express.Router();
-const { createCoupon, deleteCoupon , applyCoupon } = require('../utils/coupon.js');
+const { createCoupon, deleteCoupon, applyCoupon, buildUsageMap } = require('../utils/coupon.js');
 const { Op, fn, col, where } = require('sequelize');
 const { Coupon, Users } = require('../post-models');
 
@@ -94,9 +94,7 @@ router.get('/:code/users', async (req, res) => {
         const coupon = await getCouponByCanonicalCode(req, res);
         if (!coupon) return;
 
-        const usageMap = coupon.userUsageByUserId && typeof coupon.userUsageByUserId === 'object'
-            ? coupon.userUsageByUserId
-            : {};
+        const usageMap = buildUsageMap(coupon);
         const userIds = Object.keys(usageMap).map((id) => String(id));
 
         if (userIds.length === 0) {
@@ -135,9 +133,7 @@ router.get('/:code/users/count', async (req, res) => {
         const coupon = await getCouponByCanonicalCode(req, res);
         if (!coupon) return;
 
-        const usageMap = coupon.userUsageByUserId && typeof coupon.userUsageByUserId === 'object'
-            ? coupon.userUsageByUserId
-            : {};
+        const usageMap = buildUsageMap(coupon);
         res.status(200).json({
             status: 'success',
             count: Object.keys(usageMap).length

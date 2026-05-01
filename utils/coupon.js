@@ -131,4 +131,9 @@ async function deleteCoupon(code) {
 
 
 
-module.exports = {  deleteCoupon, createCoupon , applyCoupon };
+module.exports = {
+    deleteCoupon,
+    createCoupon,
+    applyCoupon,
+    buildUsageMap
+};
