@@ -1,20 +1,27 @@
 // routes/coupons.js (example using Express Router)
 const express = require('express');
 const router = express.Router();
-const { createCoupon, deleteCoupon , applyCoupon } = require('../utils/coupon.js');
-const { Op } = require('sequelize');
+const { createCoupon, deleteCoupon, applyCoupon, buildUsageMap } = require('../utils/coupon.js');
+const { Op, fn, col, where } = require('sequelize');
 const { Coupon, Users } = require('../post-models');
-const couponCode = require('coupon-code');
+
+const normalizeCouponCode = (rawCode) => String(rawCode || '').trim().toUpperCase();
 
 
 // Route to create a new coupon (Admin access required in a real system)
 // it needs the type, value, and expiresAt in the body of the request
 router.post('/create', async (req, res) => {
     try {
-     const newCoupon =   await createCoupon(req.body.type, req.body.value, req.body.expiresAt);
+     const newCoupon =   await createCoupon(
+        req.body.type,
+        req.body.value,
+        req.body.expiresAt,
+        req.body.codName,
+        req.body.maxUsesPerUser
+      );
         res.status(201).json(newCoupon);
     } catch (err) {
-        res.status(500).json({ message: err.message });
+        res.status(400).json({ message: err.message });
     }
 });
 
@@ -49,10 +56,14 @@ router.post('/apply', async (req, res) => {
         const newCartValue = Math.max(0, parsedCartValue - discountAmount);
         res.status(200).json({
             status: 'success',
-            message: 'Coupon applied successfully',
+            message: 'Coupon validated and applied for pricing. Usage is consumed only after a successful order callback.',
             couponCode: couponResult?.code,
             discountAmount,
-            newCartValue
+            newCartValue,
+            usageConsumption: {
+                phase: 'order_callback_success',
+                consumedOnApply: false
+            }
         });
 
     } catch (err) {
@@ -61,13 +72,15 @@ router.post('/apply', async (req, res) => {
 });
 
 const getCouponByCanonicalCode = async (req, res) => {
-    const canonicalCode = couponCode.validate(req.params.code);
+    const canonicalCode = normalizeCouponCode(req.params.code);
     if (!canonicalCode) {
-        res.status(400).json({ status: 'fail', message: 'Invalid coupon code format' });
+        res.status(400).json({ status: 'fail', message: 'Coupon code is required' });
         return null;
     }
 
-    const coupon = await Coupon.findOne({ where: { code: canonicalCode } });
+    const coupon = await Coupon.findOne({
+        where: where(fn('UPPER', col('code')), canonicalCode)
+    });
     if (!coupon) {
         res.status(404).json({ status: 'fail', message: 'Coupon not found' });
         return null;
@@ -81,8 +94,8 @@ router.get('/:code/users', async (req, res) => {
         const coupon = await getCouponByCanonicalCode(req, res);
         if (!coupon) return;
 
-        const userIds = (Array.isArray(coupon.users) ? coupon.users : [])
-            .map((id) => String(id));
+        const usageMap = buildUsageMap(coupon);
+        const userIds = Object.keys(usageMap).map((id) => String(id));
 
         if (userIds.length === 0) {
             res.status(200).json({
@@ -106,7 +119,8 @@ router.get('/:code/users', async (req, res) => {
             status: 'success',
             users: userIds.map((id) => ({
                 id,
-                fullName: userNameById.get(id) ?? null
+                fullName: userNameById.get(id) ?? null,
+                usageCount: Number(usageMap[id] || 0)
             }))
         });
     } catch (err) {
@@ -119,10 +133,10 @@ router.get('/:code/users/count', async (req, res) => {
         const coupon = await getCouponByCanonicalCode(req, res);
         if (!coupon) return;
 
-        const users = Array.isArray(coupon.users) ? coupon.users : [];
+        const usageMap = buildUsageMap(coupon);
         res.status(200).json({
             status: 'success',
-            count: users.length
+            count: Object.keys(usageMap).length
         });
     } catch (err) {
         res.status(500).json({ status: 'fail', message: err.message || 'Failed to fetch coupon user count' });

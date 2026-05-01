@@ -1,5 +1,27 @@
 const couponCode = require('coupon-code');
+const { fn, col, where } = require('sequelize');
 const { Coupon } = require('../post-models');
+
+const normalizeCouponCode = (rawCode) => String(rawCode || '').trim().toUpperCase();
+const normalizeUserId = (rawUserId) => String(rawUserId || '').trim();
+
+function buildUsageMap(coupon) {
+    const usageFromMap = coupon?.userUsageByUserId && typeof coupon.userUsageByUserId === 'object'
+        ? { ...coupon.userUsageByUserId }
+        : {};
+    const legacyUsers = Array.isArray(coupon?.users) ? coupon.users : [];
+
+    for (const legacyUserId of legacyUsers) {
+        const normalizedLegacyUserId = normalizeUserId(legacyUserId);
+        if (!normalizedLegacyUserId) continue;
+        if (!Number.isFinite(Number(usageFromMap[normalizedLegacyUserId]))) {
+            usageFromMap[normalizedLegacyUserId] = 1;
+        }
+    }
+
+    return usageFromMap;
+}
+
 async function generateCouponCode( ) {
     let code = null;
     let isUnique = false;
@@ -15,22 +37,24 @@ async function generateCouponCode( ) {
 }
 
 async function applyCoupon(code, cartValue, userId) {
-    const canonicalCode = couponCode.validate(code);
+    const canonicalCode = normalizeCouponCode(code);
     if (!canonicalCode) {
-        throw new Error('Invalid coupon code format');
+        throw new Error('Coupon code is required');
     }
 
     const amount = Number(cartValue);
     if (!Number.isFinite(amount) || amount < 0) {
         throw new Error('Invalid cart value');
     }
-    const normalizedUserId = String(userId || "").trim();
+    const normalizedUserId = normalizeUserId(userId);
     if (!normalizedUserId) {
         throw new Error('Invalid user id');
     }
 
     try {
-        const coupon = await Coupon.findOne({ where: { code: canonicalCode } });
+        const coupon = await Coupon.findOne({
+            where: where(fn('UPPER', col('code')), canonicalCode)
+        });
         if (!coupon) {
             throw new Error('Coupon not found');
         }
@@ -40,10 +64,11 @@ async function applyCoupon(code, cartValue, userId) {
         if (coupon.expiresAt && new Date(coupon.expiresAt).getTime() < Date.now()) {
             throw new Error('Coupon is expired');
         }
-        const usedUsers = Array.isArray(coupon.users) ? coupon.users : [];
-        const hasUsedCoupon = usedUsers.some((usedUserId) => String(usedUserId) === normalizedUserId);
-        if (hasUsedCoupon) {
-            throw new Error('Coupon already used by this user');
+        const usageMap = buildUsageMap(coupon);
+        const currentUserUsage = Number(usageMap[normalizedUserId] || 0);
+        const maxUsesPerUser = Math.max(1, Number(coupon.maxUsesPerUser) || 1);
+        if (currentUserUsage >= maxUsesPerUser) {
+            throw new Error('Coupon usage limit reached for this user');
         }
 
         const couponValue = Number(coupon.value);
@@ -74,9 +99,24 @@ async function applyCoupon(code, cartValue, userId) {
     }
 }
 
-async function createCoupon( type, value, expiresAt) {
-    const code = await generateCouponCode();
-    const coupon = await Coupon.create({ code:code, type, value, expiresAt });
+async function createCoupon(type, value, expiresAt, codName, maxUsesPerUser) {
+    const customCode = normalizeCouponCode(codName);
+    const code = customCode || await generateCouponCode();
+    const existingCoupon = await Coupon.findOne({ where: { code } });
+    if (existingCoupon) {
+        throw new Error('Coupon code already exists');
+    }
+    const parsedMaxUsesPerUser = maxUsesPerUser == null ? 1 : Number(maxUsesPerUser);
+    if (!Number.isInteger(parsedMaxUsesPerUser) || parsedMaxUsesPerUser < 1) {
+        throw new Error('maxUsesPerUser must be an integer greater than or equal to 1');
+    }
+    const coupon = await Coupon.create({
+        code: code,
+        type,
+        value,
+        expiresAt,
+        maxUsesPerUser: parsedMaxUsesPerUser
+    });
     return coupon;
 }
 
@@ -91,4 +131,9 @@ async function deleteCoupon(code) {
 
 
 
-module.exports = {  deleteCoupon, createCoupon , applyCoupon };
+module.exports = {
+    deleteCoupon,
+    createCoupon,
+    applyCoupon,
+    buildUsageMap
+};

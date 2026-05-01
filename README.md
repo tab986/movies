@@ -70,6 +70,7 @@ A Node.js/Express backend for an Iraqi e-shop selling digital game keys, gift ca
    - [deletefiles.js](#deletefilesjs)
    - [parseJsonBodyMiddleware.js](#parsejsonbodymiddlewarejs)
    - [validationMiddleware.js](#validationmiddlewarejs)
+   - [coupon.js (utils)](#couponjs-utils)
 8. [Library](#library)
    - [kinguinClient.js](#kinguinclientjs)
 9. [Configuration](#configuration)
@@ -157,7 +158,8 @@ game-wise-backend-v3/
 │   ├── deleteR2File.js        # R2 file deletion (duplicate)
 │   ├── deletefiles.js         # Local file deletion
 │   ├── parseJsonBodyMiddleware.js # JSON parsing from form-data
-│   └── validationMiddleware.js    # Category/tag validation
+│   ├── validationMiddleware.js    # Category/tag validation
+│   └── coupon.js                  # Postgres coupons: apply, create, usage map merge
 │
 ├── lib/                       # External API clients
 │   └── kinguinClient.js       # Axios client for Kinguin API
@@ -381,7 +383,7 @@ Post-query hooks:
 
 ### Coupon.js
 
-Discount coupons for checkout.
+**MongoDB (`models/Coupon.js`):** legacy/discount schema retained in the codebase.
 
 ```
 Fields:
@@ -396,6 +398,21 @@ Methods:
                                        Returns 0 if inactive or expired
                                        For percent: rounds to nearest integer
 ```
+
+**PostgreSQL (`post-models/Coupon.js`, table `coupons`):** source of truth for **`/api/v1/coupon`** and checkout coupon validation (`utils/coupon.js`, `applyCoupon`). Fields include:
+
+```
+code                (STRING, unique)
+type                ("percent" | "fixed")
+value               (FLOAT)
+expiresAt           (DATE, optional)
+active              (BOOLEAN, default true)
+users               (JSONB array of user ids) — legacy list of redeemers
+maxUsesPerUser      (INTEGER, default 1)
+userUsageByUserId   (JSONB object: userId → usage count)
+```
+
+Discount preview uses `applyCoupon`; **persisted usage** is updated when an order is first marked paid on the Wayl callback (`consumeCouponUsageForOrder` in `orderController.js`), not on `POST /api/v1/coupon/apply`.
 
 ### adsModel.js
 
@@ -647,13 +664,15 @@ checkout (POST /api/v1/orders/checkout)
 
 waylCallback (POST /api/v1/orders/wayl-callback)
   Called by Wayl after customer completes payment.
-  1. Reads referenceId from webhook body
+  1. Validates paid status from the webhook payload
   2. Finds order by waylReference
-  3. Updates status to "wayle" (payment confirmed)
-  4. Builds Kinguin order payload from cart items
-  5. Places order on Kinguin API
-  6. Saves kinguinOrderId, updates status to "kingwin"
-  7. Returns success
+  3. On first transition to paid: markOrderPaidAndConsumeCouponOnce → consumeCouponUsageForOrder
+     increments Postgres coupon usage (userUsageByUserId) and updates users[] when the order has a coupon
+  4. Updates status to "wayle" (payment confirmed)
+  5. Builds Kinguin order payload from cart items
+  6. Places order on Kinguin API
+  7. Saves kinguinOrderId, updates status to "kingwin"
+  8. Returns success
 
 myOrders (GET /api/v1/orders/my)
   Returns current user's orders (completed or kingwin status).
@@ -1089,17 +1108,68 @@ Behavior:
 
 ### coupon.js (routes)
 
-**Base path:** `/api/v1/coupon` (Postgres `Coupon` model in `post-models`; helpers in `utils/coupon.js`).
+**Base path:** `/api/v1/coupon` (Postgres `Coupon` in `post-models/Coupon.js`; logic in `utils/coupon.js`). Coupon codes are matched case-insensitively (`UPPER(code)`).
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| POST | `/create` | None in router | Create coupon (`type`, `value`, `expiresAt` in body) |
-| DELETE | `/delete` | None in router | Delete coupon by code (`req.body.code`) |
-| POST | `/apply` | None in router | Validate/apply coupon (`code`, `cartValue`, `userId`) |
-| GET | `/:code/users` | None in router | List users associated with a coupon code |
-| GET | `/:code/users/count` | None in router | User count for a coupon |
+| POST | `/create` | None in router | Create coupon (body below). **201** + Sequelize row JSON on success; **400** `{ message }` on error |
+| DELETE | `/delete` | None in router | JSON body `{ "code": "<coupon code>" }`. **200** success or **500** `{ message }` |
+| POST | `/apply` | None in router | Pricing preview (body below). **200** success or **400** `{ status: "fail", message }` |
+| GET | `/:code/users` | None in router | **200** `{ status, users }` or **404** if code unknown; see Usage listing |
+| GET | `/:code/users/count` | None in router | **200** `{ status, count }` or **404** if code unknown |
 
-Protect `/create` and `/delete` in production (admin-only or internal tooling).
+**`POST /create` body**
+
+| Field | Required | Notes |
+|-------|----------|--------|
+| `type` | Yes | `"percent"` or `"fixed"` |
+| `value` | Yes | Percent (0–100) or fixed IQD amount |
+| `expiresAt` | No | ISO date or `null` |
+| `codName` | No | Custom code (normalized to uppercase); if omitted, server generates a segmented code |
+| `maxUsesPerUser` | No | Integer ≥ 1 (default 1) |
+
+**`POST /apply` body**
+
+| Field | Required | Notes |
+|-------|----------|--------|
+| `code` | Yes | Coupon code |
+| `cartValue` | Yes | Non-negative number (IQD subtotal for discount math) |
+| `userId` | Yes* | Required unless JWT sets `req.user._id` or `req.user.id` |
+
+Response includes `discountAmount`, `newCartValue`, and `usageConsumption.consumedOnApply: false` (usage is **not** written on this route).
+
+**Usage listing (`GET /:code/users`, `GET /:code/users/count`)**
+
+Both derive data from **`buildUsageMap`** (`utils/coupon.js`): merge of **`userUsageByUserId`** (numeric per-user counts) and legacy **`users`** array (any user id without a finite map entry counts as **1**). Distinct users = keys of that map.
+
+- **`/users/count`** returns `count` = number of distinct user ids in the merged map.
+- **`/users`** returns `{ id, fullName, usageCount }` per id. `fullName` is resolved from Postgres **`Users`**; if the stored id does not match a row in `Users`, `fullName` may be `null` while `usageCount` is still correct.
+
+Until at least one successful **paid** order callback has run with that coupon, maps are usually empty → **`users: []`** and **`count: 0`** even after **`POST /apply`** (apply only validates pricing and limits).
+
+Protect **`/create`** and **`/delete`** in production (admin-only or internal tooling).
+
+Coupon redemption timing:
+
+- `POST /api/v1/coupon/apply` validates eligibility and returns discount math; it does **not** persist usage.
+- Per-user usage is incremented when the order is first marked paid in **`POST /api/v1/orders/wayl-callback`** (`markOrderPaidAndConsumeCouponOnce` → `consumeCouponUsageForOrder`).
+- Duplicate paid callbacks for the same finalized order do not consume again.
+
+**Data repair / migration**
+
+```bash
+npm run backfill:coupon-per-user-usage
+```
+
+Merges legacy `users` into `userUsageByUserId` and normalizes `maxUsesPerUser` across existing rows (`backfillCouponPerUserUsage.js`).
+
+**Verification**
+
+```bash
+npm run verify:coupon-redemption-timing
+```
+
+Requires a reachable Postgres URL; asserts apply-vs-callback consumption and per-user caps.
 
 ### sellerRoutes.js
 
@@ -1426,6 +1496,29 @@ validateCategoryExists — Checks req.body.category exists in Categories collect
 validateTagsExist      — Checks all req.body.tags IDs exist in Tags collection
 ```
 
+### coupon.js (utils)
+
+**File:** `utils/coupon.js` — Postgres coupon helpers used by `routes/coupon.js` and checkout (`applyCoupon` is required from `orderController.js`).
+
+```
+normalizeCouponCode / normalizeUserId — trim + uppercase code / trim user id (internal)
+
+buildUsageMap(coupon) — Exported. Canonical usage map:
+  - Starts from userUsageByUserId (object shallow-cloned)
+  - For each id in legacy users[]: if no finite numeric count exists for that id, sets count to 1
+  - Used by GET /:code/users, GET /:code/users/count, and applyCoupon limit checks
+
+applyCoupon(code, cartValue, userId) — Loads coupon from DB (case-insensitive code);
+  checks active, expiry, maxUsesPerUser against buildUsageMap, type/value;
+  returns { code, discount } (discount capped at cart value). Does not UPDATE the coupon row.
+
+createCoupon(type, value, expiresAt, codName, maxUsesPerUser) — INSERT; codName optional custom code
+
+deleteCoupon(code) — DELETE by code as stored
+
+generateCouponCode — Internal loop using coupon-code package until a DB-unique code exists
+```
+
 ---
 
 ## Library
@@ -1569,10 +1662,11 @@ How a purchase works end-to-end:
 
 7. BACKEND (waylCallback):
    a. Finds order by waylReference
-   b. Updates status to "wayle" (payment confirmed)
-   c. Builds Kinguin order payload
-   d. Calls Kinguin API to place order
-   e. Saves kinguinOrderId, status → "kingwin"
+   b. On first paid transition: persists coupon usage on Postgres coupons (per-user counts + users list) when the order has a coupon code
+   c. Updates status to "wayle" (payment confirmed)
+   d. Builds Kinguin order payload
+   e. Calls Kinguin API to place order
+   f. Saves kinguinOrderId, status → "kingwin"
 
 8. KINGUIN processes the order and prepares keys
 

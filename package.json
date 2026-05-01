@@ -1,7 +1,9 @@
 {
   "scripts": {
     "start": "node server.js",
-    "validate:kinguin-startup": "node validateKinguinStartup.js"
+    "validate:kinguin-startup": "node validateKinguinStartup.js",
+    "backfill:coupon-per-user-usage": "node backfillCouponPerUserUsage.js",
+    "verify:coupon-redemption-timing": "node verifyCouponRedemptionTiming.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.888.0",

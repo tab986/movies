@@ -14,7 +14,7 @@ const appError = require("../utils/appError");
 const { convertFromIQD } = require("../utils/currency");
 const { stat } = require("fs");
 const { fetchKinguinProductById } = require("../lib/kinguinClient");
-const { Op } = require("sequelize");
+const { Op, fn, col, where } = require("sequelize");
 const { applyCoupon } = require("../utils/coupon.js");
 const { computeMerchantLineDiscount } = require("../utils/merchantDiscount.js");
 // Wayl config
@@ -247,7 +247,9 @@ async function consumeCouponUsageForOrder(order) {
     return;
   }
 
-  const coupon = await Coupon.findOne({ where: { code: couponCode } });
+  const coupon = await Coupon.findOne({
+    where: where(fn("UPPER", col("code")), couponCode.toUpperCase()),
+  });
   if (!coupon) {
     console.warn("[waylCallback] Coupon missing for order", {
       orderId: order?.id,
@@ -261,14 +263,39 @@ async function consumeCouponUsageForOrder(order) {
     return;
   }
 
-  const currentUsers = Array.isArray(coupon.users) ? coupon.users : [];
-  const normalizedUsers = currentUsers.map((id) => String(id));
-  if (normalizedUsers.includes(orderUserId)) {
-    return;
+  const usageMap =
+    coupon.userUsageByUserId && typeof coupon.userUsageByUserId === "object"
+      ? { ...coupon.userUsageByUserId }
+      : {};
+  const legacyUsers = Array.isArray(coupon.users) ? coupon.users : [];
+  for (const legacyUserId of legacyUsers) {
+    const normalizedLegacyUserId = String(legacyUserId || "").trim();
+    if (!normalizedLegacyUserId) continue;
+    if (!Number.isFinite(Number(usageMap[normalizedLegacyUserId]))) {
+      usageMap[normalizedLegacyUserId] = 1;
+    }
   }
 
+  const currentCount = Number(usageMap[orderUserId] || 0);
+  usageMap[orderUserId] = currentCount + 1;
+  coupon.userUsageByUserId = usageMap;
+
+  const normalizedUsers = legacyUsers.map((id) => String(id));
   coupon.users = [...new Set([...normalizedUsers, orderUserId])];
   await coupon.save();
+}
+
+async function markOrderPaidAndConsumeCouponOnce(order) {
+  const wasAlreadyPaid = String(order?.waylPaymentStatus || "").toLowerCase() === "paid";
+  order.waylPaymentStatus = "paid";
+  order.status = "wayle";
+  await order.save();
+
+  if (!wasAlreadyPaid) {
+    await consumeCouponUsageForOrder(order);
+  }
+
+  return { couponConsumed: !wasAlreadyPaid };
 }
 
 /**
@@ -659,15 +686,11 @@ exports.waylCallback = async (req, res, next) => {
     }
 
     if (["kingwin", "completed"].includes(order.status) && order.kinguinOrderId) {
-      await consumeCouponUsageForOrder(order);
       return res.status(200).json({ status: "success", idempotent: true });
     }
 
-    // Mark order as paid according to Wayl
-    order.waylPaymentStatus = "paid";
-    order.status = "wayle";
-    await order.save();
-    await consumeCouponUsageForOrder(order);
+    // Mark order as paid according to Wayl and consume coupon once for this order.
+    await markOrderPaidAndConsumeCouponOnce(order);
 
     // Build products payload for Kinguin API. Each entry needs
     // { kinguinId, qty, price } where price must match an available offer.
@@ -767,6 +790,7 @@ exports.waylCallback = async (req, res, next) => {
 
 exports.submitKinguinOrderByProductId = submitKinguinOrderByProductId;
 exports.prepareKinguinOrderProduct = buildKinguinOrderProduct;
+exports.markOrderPaidAndConsumeCouponOnce = markOrderPaidAndConsumeCouponOnce;
 
 exports.grantGiveawayOrder = async (req, res, next) => {
   try {
