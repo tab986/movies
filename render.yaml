@@ -1,4 +1,9 @@
 # render.yaml
+#
+# Web/API service deploy settings live in your host dashboard (not fully declared here).
+# Before blaming branch `3bdl` for build flakes: confirm auto-deploy branch + Docker vs native build.
+# Operator steps + apt mirror redeploy guidance: deploy/HOST_CHECKLIST.txt
+#
 envVarGroups:
   - name: gamewise-secrets
     envVars: [] # create the group empty; fill values in the dashboard

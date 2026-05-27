@@ -1,0 +1,16 @@
+Deployment checklist — why failures can look "only on branch 3bdl"
+
+1) Verify branch and build type (hosting dashboard)
+   - Open your Web Service / API service settings (Render, Coolify, Docker host, etc.).
+   - Confirm which Git branch triggers production deploys (often `3bdl` for this project).
+   - Confirm whether the service builds with Docker:
+     - If Docker: set "Dockerfile path" to the repo root Dockerfile when the UI allows it.
+     - If native Node/buildpack: apt mirror errors usually come from a different image path; adjust there or switch to this Dockerfile.
+
+2) Transient apt mirror errors ("unexpected size", "Mirror sync in progress")
+   - Cause: public Ubuntu/Debian CDN briefly inconsistent during mirror sync — not application logic.
+   - Action: wait a few minutes and click Redeploy / Clear build cache & deploy from the dashboard.
+   - Mitigation: this repo Dockerfile retries `apt-get update` and pins a Bookworm-based Node image to reduce Noble-specific mirror hits.
+
+3) After changing Dockerfile
+   - Push to your deploy branch and trigger one fresh deploy so the platform picks up the new build recipe.
