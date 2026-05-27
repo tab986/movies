@@ -40,6 +40,13 @@ router
 
 router.route("/popular-games").get(productsControllers.listPopularGames);
 
+router
+  .route("/trending-games")
+  .get(
+    requireDbReady({ dependency: "products catalog" }),
+    productsControllers.listTrendingGames
+  );
+
 router.route("/ads").get(adsControllers.getAds);
 router.route("/ads/:id").get(adsControllers.getAd);
 router.get(

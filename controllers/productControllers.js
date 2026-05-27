@@ -274,6 +274,12 @@ const {
   getMostPopularGames,
   getOfficialDealForTitle,
 } = require("../utils/itadClient");
+const { getTop100In2Weeks } = require("../utils/steamSpyClient");
+const {
+  buildCatalogNameIndex,
+  findCatalogMatch,
+  isDlcTitle,
+} = require("../utils/gameNameMatch");
 // const { getShopIdsForPlatform } = require("../utils/platforms"); // if you ever need shops
 
 /** Lists catalog items where `remote.isCard` is true (gift cards / prepaid), same query params as GET / */
@@ -894,6 +900,79 @@ exports.listPopularGames = catchAsyncErrors(async (req, res, next) => {
       item_count: normalizedResults.length,
     },
     results: normalizedResults,
+  });
+});
+
+exports.listTrendingGames = catchAsyncErrors(async (req, res, next) => {
+  const [trendingGames, catalogProducts] = await Promise.all([
+    getTop100In2Weeks(),
+    KinguinProduct.findAll({
+      where: {
+        [Op.and]: [
+          Sequelize.literal(NOT_HIDDEN_SQL),
+          Sequelize.literal(IN_STOCK_SQL),
+          Sequelize.literal(`("remote"->'isCard') IS DISTINCT FROM 'true'::jsonb`),
+          Sequelize.literal(`("remote"->'isDLC') IS DISTINCT FROM 'true'::jsonb`),
+        ],
+      },
+      raw: true,
+    }),
+  ]);
+
+  const catalogIndex = buildCatalogNameIndex(catalogProducts);
+  const seenKinguinIds = new Set();
+  const results = [];
+
+  for (const steamGame of trendingGames) {
+    if (isDlcTitle(steamGame.name)) continue;
+
+    const product = findCatalogMatch(steamGame.name, catalogIndex);
+    if (!product || seenKinguinIds.has(product.id)) continue;
+
+    seenKinguinIds.add(product.id);
+
+    const cover = product.overrides?.coverImage || product.remote?.images?.cover;
+    const image =
+      (cover && typeof cover === "object" ? cover.url : null) ||
+      (typeof cover === "string" ? cover : null) ||
+      null;
+
+    results.push({
+      rank: steamGame.rank,
+      steamSpy: {
+        appid: steamGame.appid,
+        name: steamGame.name,
+        average_2weeks: steamGame.average_2weeks,
+        ccu: steamGame.ccu,
+        owners: steamGame.owners,
+        price: steamGame.price,
+        discount: steamGame.discount,
+        genre: steamGame.genre,
+      },
+      kinguinId: product.id,
+      name:
+        product.overrides?.name ||
+        product.remote?.name ||
+        product.remote?.originalName ||
+        null,
+      image,
+      priceMin: product.derived?.priceMin ?? null,
+      platform: product.derived?.platformCanonical || product.remote?.platform || null,
+      seo: buildProductSeoListItem({ productRow: product, kinguinId: product.id }),
+    });
+  }
+
+  res.status(200).json({
+    status: "success",
+    source: "steamspy",
+    metric: "top100in2weeks",
+    meta: {
+      steamspy_total: trendingGames.length,
+      item_count: results.length,
+      cache_ttl_hours: 24,
+      matching: "normalized game name (platform/key suffixes stripped; DLC excluded)",
+    },
+    results,
   });
 });
 
