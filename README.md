@@ -1631,6 +1631,8 @@ A typical hosted instance exposes:
 - `GET /` â†’ `{ "jason": "working" }` (smoke test)
 - `GET /healthz` â†’ `{ "status": "ok" }`
 
+**Docker / Coolify / Contabo:** see [deploy/COOLIFY.md](./deploy/COOLIFY.md) and [deploy/CONTABO.md](./deploy/CONTABO.md). Copy [`.env.example`](./.env.example) to `.env` on the server.
+
 Example staging host used for integration checks: `https://stage-backend.gamewiseiq.com` (replace with your own production URL in real docs).
 
 ---

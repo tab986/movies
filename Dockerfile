@@ -1,4 +1,4 @@
-# GameWise backend — use this image when your platform builds from the repo (e.g. branch `3bdl`).
+# GameWise API — Docker image for Coolify, Contabo VPS, Render, etc.
 # Bookworm-based Node image avoids Ubuntu Noble mirror flakes; apt retries still guard `apt-get update`.
 FROM node:20-bookworm-slim
 
@@ -28,7 +28,11 @@ RUN npm ci
 COPY . .
 
 ENV NODE_ENV=production
+ENV PORT=5000
 
-EXPOSE 3000
+EXPOSE 5000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+  CMD node -e "const p=process.env.PORT||5000;require('http').get('http://127.0.0.1:'+p+'/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
 
 CMD ["node", "server.js"]

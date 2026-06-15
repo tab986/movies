@@ -141,8 +141,8 @@ async function startServer() {
   const port = process.env.PORT || 3000;
   startupState.phase = "http_listen";
   logPhase("http_listen", `Binding HTTP listener on port ${port}...`);
-  server = app.listen(port, () => {
-    logPhase("http_listen", `Server running on port ${port}`);
+  server = app.listen(port, "0.0.0.0", () => {
+    logPhase("http_listen", `Server running on 0.0.0.0:${port}`);
   });
 
   // Start internal scheduler for full import (if enabled)

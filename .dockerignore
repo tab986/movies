@@ -2,9 +2,16 @@ node_modules
 .git
 .env
 .env.*
+!.env.example
 *.db
 *.db-shm
 *.db-wal
 .tmp-pgdata
 .cursor
+frontend/dist
+dist
+build
+coverage
 npm-debug.log*
+*.log
+.DS_Store

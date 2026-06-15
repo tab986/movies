@@ -11,17 +11,33 @@ Backend API and tooling for **GameWise**, an Iraqi digital storefront for game k
 | Articles / blog | PostgreSQL via Sequelize (`post-models/`) — Supabase or any Postgres URL |
 | Storage | S3-compatible (e.g. Cloudflare R2) for uploads |
 | Frontend (optional) | Vite build under `frontend/`; static assets in `public/` |
-| Deploy | Docker, [Render](render.yaml), cron sync jobs |
+| Deploy | Docker, [Coolify](deploy/COOLIFY.md), [Contabo VPS](deploy/CONTABO.md), [Render](render.yaml) |
 
 ## Quick start
 
 ```bash
 npm install
-cp .env.example .env   # if present; otherwise configure env vars (see below)
+cp .env.example .env
 npm start              # runs server.js
 ```
 
-The HTTP server binds to `PORT` (default from env). Startup validates Kinguin connectivity and database readiness before accepting traffic.
+The HTTP server binds to `0.0.0.0` on `PORT` (default `3000` in code, `5000` in `.env.example`). Health probe: `GET /healthz`.
+
+## Deploy on Coolify
+
+1. Connect repo `tab986/movies`, branch `main`, build with root **Dockerfile**.
+2. Set env vars from [`.env.example`](./.env.example) in the Coolify UI (never commit `.env`).
+3. Map container port to `PORT` (e.g. `5000`); health check path `/healthz`.
+
+Full steps: [deploy/COOLIFY.md](./deploy/COOLIFY.md).
+
+## Deploy on Contabo VPS
+
+1. Install Docker on the VPS, clone this repo, `cp .env.example .env` and configure secrets.
+2. `docker compose up -d --build api` (add `--profile local-db` for bundled Postgres).
+3. Put Nginx/Certbot in front for HTTPS; point `WAYL_WEBHOOK_URL` and CORS at your public URL.
+
+Full steps: [deploy/CONTABO.md](./deploy/CONTABO.md).
 
 ## API surface (prefix `/api/v1`)
 

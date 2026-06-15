@@ -1,4 +1,5 @@
 {
+  "name": "movies",
   "scripts": {
     "start": "node server.js",
     "validate:kinguin-startup": "node validateKinguinStartup.js",
