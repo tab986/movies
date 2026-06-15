@@ -42,9 +42,21 @@ function createSequelize() {
 
   if (uri) {
     console.log("[db] Using URI-based Postgres config (POSTGRES_URI/DATABASE_URL/POSTGRES_URL)");
-    return new Sequelize(uri, {
+    const sslMode = String(process.env.POSTGRES_SSL || process.env.PGSSLMODE || "")
+      .trim()
+      .toLowerCase();
+    const needsSsl =
+      sslMode === "true" ||
+      sslMode === "require" ||
+      /sslmode=(require|verify-full|prefer)/i.test(uri);
+    // pg treats sslmode=require in the URL as verify-full; strip it and use dialectOptions instead.
+    const normalizedUri = uri.replace(/([?&])sslmode=[^&]*/gi, "$1").replace(/[?&]$/, "");
+    return new Sequelize(normalizedUri, {
       dialect: "postgres",
       logging: false,
+      dialectOptions: needsSsl
+        ? { ssl: { require: true, rejectUnauthorized: false } }
+        : undefined,
     });
   }
 

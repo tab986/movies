@@ -2,4 +2,9 @@ node_modules/
 .eslintc.json
 .prettierrc
 config.env
+.env
+.env.*
 .tmp-pgdata/
+*.db
+*.db-shm
+*.db-wal

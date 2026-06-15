@@ -1,3 +1,4 @@
+﻿> **Quick overview:** See [PROJECT.md](./PROJECT.md) for stack, API summary, and setup.
 # GameWise Backend v3
 
 A Node.js/Express backend for an Iraqi e-shop selling digital game keys, gift cards, and subscriptions. The system syncs products from the **Kinguin ESA API**, handles payments via **Wayl**, delivers CD keys automatically, and provides an admin dashboard for management.
@@ -85,87 +86,87 @@ A Node.js/Express backend for an Iraqi e-shop selling digital game keys, gift ca
 
 ```
 game-wise-backend-v3/
-├── server.js                  # Entry point: starts server, connects DB
-├── app.js                     # Express app config, middleware, route mounting
-├── config.env                 # Environment variables (not in repo)
-├── render.yaml                # Render.com deployment config (cron jobs)
-├── package.json               # Dependencies
-│
-├── controllers/               # Business logic for each feature
-│   ├── authControllers.js     # Signup, login, JWT, OTP, password reset
-│   ├── orderController.js     # Checkout, payment callback, key delivery
-│   ├── productControllers.js  # Product listing, ganraGames compact, gift-cards, ITAD popular
-│   ├── syncController.js      # Triggers full import
-│   ├── statsController.js     # Dashboard analytics and stats
-│   ├── homeController.js      # Homepage content management
-│   ├── storeController.js     # Store/merchant CRUD
-│   ├── adsController.js       # Advertisement CRUD
-│   ├── articleController.js   # CMS articles (public + admin)
-│   ├── tagsController.js      # Tag management
-│   ├── userControllers.js     # Admin user management
-│   ├── userDashboardController.js  # User profile (admin view)
-│   ├── userProfileControllers.js   # User profile (self-service)
-│   └── errorControllers.js    # Global error handler
-│
-├── post-models/               # Sequelize models (PostgreSQL)
-│   ├── Article.js             # CMS articles (blog/content)
-│   ├── KinguinProduct.js      # Cached Kinguin catalog
-│   └── ...                    # Other Sequelize models
-│
-├── models/                    # Mongoose schemas
-│   ├── userModel.js           # User accounts (phone auth, roles)
-│   ├── KinguinProduct.js      # Cached Kinguin products
-│   ├── Orders.js              # Orders with cart, keys, payment status
-│   ├── Coupon.js              # Discount coupons
-│   ├── adsModel.js            # Advertisements/banners
-│   ├── homeModel.js           # Homepage content
-│   ├── storeModel.js          # Stores/merchants
-│   ├── tagsModel.js           # Product tags
-│   ├── categoriesModel.js     # Product categories
-│   ├── productsModel.js       # General products (non-Kinguin)
-│   ├── reviewsModel.js        # Product reviews
-│   └── SyncState.js           # Sync timestamps and profiles
-│
-├── routes/                    # API endpoint definitions
-│   ├── userRoutes.js          # /api/v1/users
-│   ├── orderRoutes.js         # /api/v1/orders
-│   ├── productsRoutes.js      # /api/v1/products
-│   ├── articlesRoutes.js      # /api/v1/articles (public CMS reads)
-│   ├── dashboardRoutes.js     # /api/v1/dashboard
-│   ├── syncRoutes.js          # /api/v1/sync
-│   ├── kinguinCacheRoutes.js  # /api/v1/catalog
-│   ├── coupon.js              # /api/v1/coupon (Postgres coupons)
-│   ├── sellerRoutes.js        # /api/v1/seller (optional / legacy)
-│   └── webhooks.js            # /webhooks/kinguin/*
-│
-├── worker/                    # Background sync workers
-│   ├── importAll.js           # Full catalog import from Kinguin
-│   ├── deltaSync.js           # Incremental sync (only changed products)
-│   ├── reconcile.js           # Hide removed products
-│   └── scheduler.js           # Cron scheduler for deltaSync
-│
-├── utils/                     # Helper utilities
-│   ├── APIFeatures.js         # Query filtering, sorting, pagination
-│   ├── appError.js            # Custom error class
-│   ├── catchAsyncErrors.js    # Async error wrapper
-│   ├── currency.js            # IQD currency conversion
-│   ├── handlerFactory.js      # Generic CRUD handlers
-│   ├── imageUploadMiddleware.js # Image upload to R2
-│   ├── itadClient.js          # IsThereAnyDeal API client
-│   ├── platforms.js           # Platform normalization
-│   ├── productSeo.js          # SEO meta + sitemap hints for public product JSON
-│   ├── s3Utils.js             # R2/S3 file deletion
-│   ├── deleteR2File.js        # R2 file deletion (duplicate)
-│   ├── deletefiles.js         # Local file deletion
-│   ├── parseJsonBodyMiddleware.js # JSON parsing from form-data
-│   ├── validationMiddleware.js    # Category/tag validation
-│   └── coupon.js                  # Postgres coupons: apply, create, usage map merge
-│
-├── lib/                       # External API clients
-│   └── kinguinClient.js       # Axios client for Kinguin API
-│
-└── public/                    # Static files
-    └── images/                # Uploaded images
+â”œâ”€â”€ server.js                  # Entry point: starts server, connects DB
+â”œâ”€â”€ app.js                     # Express app config, middleware, route mounting
+â”œâ”€â”€ config.env                 # Environment variables (not in repo)
+â”œâ”€â”€ render.yaml                # Render.com deployment config (cron jobs)
+â”œâ”€â”€ package.json               # Dependencies
+â”‚
+â”œâ”€â”€ controllers/               # Business logic for each feature
+â”‚   â”œâ”€â”€ authControllers.js     # Signup, login, JWT, OTP, password reset
+â”‚   â”œâ”€â”€ orderController.js     # Checkout, payment callback, key delivery
+â”‚   â”œâ”€â”€ productControllers.js  # Product listing, ganraGames compact, gift-cards, ITAD popular
+â”‚   â”œâ”€â”€ syncController.js      # Triggers full import
+â”‚   â”œâ”€â”€ statsController.js     # Dashboard analytics and stats
+â”‚   â”œâ”€â”€ homeController.js      # Homepage content management
+â”‚   â”œâ”€â”€ storeController.js     # Store/merchant CRUD
+â”‚   â”œâ”€â”€ adsController.js       # Advertisement CRUD
+â”‚   â”œâ”€â”€ articleController.js   # CMS articles (public + admin)
+â”‚   â”œâ”€â”€ tagsController.js      # Tag management
+â”‚   â”œâ”€â”€ userControllers.js     # Admin user management
+â”‚   â”œâ”€â”€ userDashboardController.js  # User profile (admin view)
+â”‚   â”œâ”€â”€ userProfileControllers.js   # User profile (self-service)
+â”‚   â””â”€â”€ errorControllers.js    # Global error handler
+â”‚
+â”œâ”€â”€ post-models/               # Sequelize models (PostgreSQL)
+â”‚   â”œâ”€â”€ Article.js             # CMS articles (blog/content)
+â”‚   â”œâ”€â”€ KinguinProduct.js      # Cached Kinguin catalog
+â”‚   â””â”€â”€ ...                    # Other Sequelize models
+â”‚
+â”œâ”€â”€ models/                    # Mongoose schemas
+â”‚   â”œâ”€â”€ userModel.js           # User accounts (phone auth, roles)
+â”‚   â”œâ”€â”€ KinguinProduct.js      # Cached Kinguin products
+â”‚   â”œâ”€â”€ Orders.js              # Orders with cart, keys, payment status
+â”‚   â”œâ”€â”€ Coupon.js              # Discount coupons
+â”‚   â”œâ”€â”€ adsModel.js            # Advertisements/banners
+â”‚   â”œâ”€â”€ homeModel.js           # Homepage content
+â”‚   â”œâ”€â”€ storeModel.js          # Stores/merchants
+â”‚   â”œâ”€â”€ tagsModel.js           # Product tags
+â”‚   â”œâ”€â”€ categoriesModel.js     # Product categories
+â”‚   â”œâ”€â”€ productsModel.js       # General products (non-Kinguin)
+â”‚   â”œâ”€â”€ reviewsModel.js        # Product reviews
+â”‚   â””â”€â”€ SyncState.js           # Sync timestamps and profiles
+â”‚
+â”œâ”€â”€ routes/                    # API endpoint definitions
+â”‚   â”œâ”€â”€ userRoutes.js          # /api/v1/users
+â”‚   â”œâ”€â”€ orderRoutes.js         # /api/v1/orders
+â”‚   â”œâ”€â”€ productsRoutes.js      # /api/v1/products
+â”‚   â”œâ”€â”€ articlesRoutes.js      # /api/v1/articles (public CMS reads)
+â”‚   â”œâ”€â”€ dashboardRoutes.js     # /api/v1/dashboard
+â”‚   â”œâ”€â”€ syncRoutes.js          # /api/v1/sync
+â”‚   â”œâ”€â”€ kinguinCacheRoutes.js  # /api/v1/catalog
+â”‚   â”œâ”€â”€ coupon.js              # /api/v1/coupon (Postgres coupons)
+â”‚   â”œâ”€â”€ sellerRoutes.js        # /api/v1/seller (optional / legacy)
+â”‚   â””â”€â”€ webhooks.js            # /webhooks/kinguin/*
+â”‚
+â”œâ”€â”€ worker/                    # Background sync workers
+â”‚   â”œâ”€â”€ importAll.js           # Full catalog import from Kinguin
+â”‚   â”œâ”€â”€ deltaSync.js           # Incremental sync (only changed products)
+â”‚   â”œâ”€â”€ reconcile.js           # Hide removed products
+â”‚   â””â”€â”€ scheduler.js           # Cron scheduler for deltaSync
+â”‚
+â”œâ”€â”€ utils/                     # Helper utilities
+â”‚   â”œâ”€â”€ APIFeatures.js         # Query filtering, sorting, pagination
+â”‚   â”œâ”€â”€ appError.js            # Custom error class
+â”‚   â”œâ”€â”€ catchAsyncErrors.js    # Async error wrapper
+â”‚   â”œâ”€â”€ currency.js            # IQD currency conversion
+â”‚   â”œâ”€â”€ handlerFactory.js      # Generic CRUD handlers
+â”‚   â”œâ”€â”€ imageUploadMiddleware.js # Image upload to R2
+â”‚   â”œâ”€â”€ itadClient.js          # IsThereAnyDeal API client
+â”‚   â”œâ”€â”€ platforms.js           # Platform normalization
+â”‚   â”œâ”€â”€ productSeo.js          # SEO meta + sitemap hints for public product JSON
+â”‚   â”œâ”€â”€ s3Utils.js             # R2/S3 file deletion
+â”‚   â”œâ”€â”€ deleteR2File.js        # R2 file deletion (duplicate)
+â”‚   â”œâ”€â”€ deletefiles.js         # Local file deletion
+â”‚   â”œâ”€â”€ parseJsonBodyMiddleware.js # JSON parsing from form-data
+â”‚   â”œâ”€â”€ validationMiddleware.js    # Category/tag validation
+â”‚   â””â”€â”€ coupon.js                  # Postgres coupons: apply, create, usage map merge
+â”‚
+â”œâ”€â”€ lib/                       # External API clients
+â”‚   â””â”€â”€ kinguinClient.js       # Axios client for Kinguin API
+â”‚
+â””â”€â”€ public/                    # Static files
+    â””â”€â”€ images/                # Uploaded images
 ```
 
 ---
@@ -225,21 +226,21 @@ Configures the Express application: security, middleware, and route mounting.
 
 **Mounted API groups (order matters: sync and coupon sit *before* the global rate limiter)**
 
-- `/api/v1/coupon` — Coupon create/delete/apply and coupon-user listings (`routes/coupon.js`).
-- `/api/v1/sync` — Sync profile, delta run, import, reconcile (`routes/syncRoutes.js`).
+- `/api/v1/coupon` â€” Coupon create/delete/apply and coupon-user listings (`routes/coupon.js`).
+- `/api/v1/sync` â€” Sync profile, delta run, import, reconcile (`routes/syncRoutes.js`).
 - *(rate limiter applies here)*
-- `/api/v1/users` — Auth and profiles.
-- `/api/v1/merchant` — Merchant signup/login, purchase log, analytics (`routes/merchantRoutes.js`).
-- `/api/v1/dashboard` — Admin dashboard (JWT + admin role on protected routes).
-- `/api/v1/orders` — Checkout and orders.
-- `/api/v1/products` — Public product catalog (`routes/productsRoutes.js`).
-- `/api/v1/articles` — Published articles only; mounted with `requireDbReady({ dependency: "articles" })`.
-- `/webhooks` — Kinguin webhooks (secret header, not JWT).
-- `/api/v1/catalog` — Read-only cached catalog list/detail (`routes/kinguinCacheRoutes.js`).
+- `/api/v1/users` â€” Auth and profiles.
+- `/api/v1/merchant` â€” Merchant signup/login, purchase log, analytics (`routes/merchantRoutes.js`).
+- `/api/v1/dashboard` â€” Admin dashboard (JWT + admin role on protected routes).
+- `/api/v1/orders` â€” Checkout and orders.
+- `/api/v1/products` â€” Public product catalog (`routes/productsRoutes.js`).
+- `/api/v1/articles` â€” Published articles only; mounted with `requireDbReady({ dependency: "articles" })`.
+- `/webhooks` â€” Kinguin webhooks (secret header, not JWT).
+- `/api/v1/catalog` â€” Read-only cached catalog list/detail (`routes/kinguinCacheRoutes.js`).
 
 **404 / errors**
 
-- Unmatched routes → `AppError` 404 (`can't find {url}`).
+- Unmatched routes â†’ `AppError` 404 (`can't find {url}`).
 - Global handler: `errorControllers`.
 
 ---
@@ -252,19 +253,19 @@ Defines the User schema for authentication and profiles.
 
 ```
 Fields:
-  fullName         (String)          — User's display name
-  phone            (String, unique)  — Phone number (used as login ID)
-  governorate      (String, enum)    — Iraqi governorate (Baghdad, Basra, etc.)
-  city             (String)          — City name
-  address          (String)          — Street address
-  email            (String)          — Email (optional, lowercase)
-  isActive         (Boolean)         — Soft delete flag (default: true)
-  profileImage     (String)          — URL to profile picture on R2
-  role             (String, enum)    — "user", "admin", "seller", or "merchant"
-  password         (String)          — Hashed password (hidden from queries)
-  passwordChangedAt (Date)           — When password was last changed
-  passwordResetToken (String)        — Hashed reset token
-  passwordResetTokenExp (Date)       — Reset token expiry (10 minutes)
+  fullName         (String)          â€” User's display name
+  phone            (String, unique)  â€” Phone number (used as login ID)
+  governorate      (String, enum)    â€” Iraqi governorate (Baghdad, Basra, etc.)
+  city             (String)          â€” City name
+  address          (String)          â€” Street address
+  email            (String)          â€” Email (optional, lowercase)
+  isActive         (Boolean)         â€” Soft delete flag (default: true)
+  profileImage     (String)          â€” URL to profile picture on R2
+  role             (String, enum)    â€” "user", "admin", "seller", or "merchant"
+  password         (String)          â€” Hashed password (hidden from queries)
+  passwordChangedAt (Date)           â€” When password was last changed
+  passwordResetToken (String)        â€” Hashed reset token
+  passwordResetTokenExp (Date)       â€” Reset token expiry (10 minutes)
 
 Pre-save hooks:
   1. Sets passwordChangedAt when password is modified
@@ -274,9 +275,9 @@ Pre-find hook:
   Automatically filters out inactive users (isActive != false)
 
 Methods:
-  checkPassword(input, hash)      — Compares plain password with hash
-  checkChangedPassword(jwtTime)   — Returns true if password changed after JWT was issued
-  resetPasswordToken()            — Generates random token, stores hash, sets 10min expiry
+  checkPassword(input, hash)      â€” Compares plain password with hash
+  checkChangedPassword(jwtTime)   â€” Returns true if password changed after JWT was issued
+  resetPasswordToken()            â€” Generates random token, stores hash, sets 10min expiry
 ```
 
 ### KinguinProduct.js
@@ -285,55 +286,55 @@ Stores products synced from the Kinguin API. This is the main product model.
 
 ```
 Fields:
-  _id              (Number)          — Kinguin product ID (kinguinId as _id)
+  _id              (Number)          â€” Kinguin product ID (kinguinId as _id)
 
-  officialStore:                     — Price data from IsThereAnyDeal API
-    itadGameId     (String)          — ITAD game identifier
-    shopId         (Number)          — Store ID (e.g., 61 = Steam)
-    shopName       (String)          — Store name (e.g., "Steam")
-    url            (String)          — Link to buy on official store
-    priceAmount    (Number)          — Current price on official store
-    regularAmount  (Number)          — Regular/full price
-    cut            (Number)          — Discount percentage (0-100)
-    lastUpdatedAt  (Date)            — When ITAD data was last fetched
+  officialStore:                     â€” Price data from IsThereAnyDeal API
+    itadGameId     (String)          â€” ITAD game identifier
+    shopId         (Number)          â€” Store ID (e.g., 61 = Steam)
+    shopName       (String)          â€” Store name (e.g., "Steam")
+    url            (String)          â€” Link to buy on official store
+    priceAmount    (Number)          â€” Current price on official store
+    regularAmount  (Number)          â€” Regular/full price
+    cut            (Number)          â€” Discount percentage (0-100)
+    lastUpdatedAt  (Date)            â€” When ITAD data was last fetched
 
-  remote:                            — Raw data from Kinguin API
-    name           (String)          — Product name from Kinguin
-    description    (String)          — Product description
-    images         (Mixed)           — Cover image, screenshots, etc.
-    price          (Number)          — Base price in EUR
-    qty            (Number)          — Stock quantity
-    offers         ([Offer])         — Merchant offers (offerId, price, qty, merchant)
-    regionId       (Number)          — Region code
-    tags           ([String])        — Tags (e.g., "base", "prepaid")
-    isCard         (Boolean)         — True if gift card/subscription
-    platform       (String)          — Platform name (original from Kinguin)
-    genres         ([String])        — Game genres
-    activationDetails (String)       — How to activate the key
-    languages      ([String])        — Supported languages
-    systemRequirements (Mixed)       — PC system requirements
-    originalName   (String)          — Original game name
-    metacriticScore (Number)         — Metacritic rating
-    releaseDate    (String)          — Release date
-    publishers     ([String])        — Publisher names
-    developers     ([String])        — Developer names
-    videos         (Mixed)           — Trailer/gameplay videos
-    updatedAt      (Date)            — Last update from Kinguin
+  remote:                            â€” Raw data from Kinguin API
+    name           (String)          â€” Product name from Kinguin
+    description    (String)          â€” Product description
+    images         (Mixed)           â€” Cover image, screenshots, etc.
+    price          (Number)          â€” Base price in EUR
+    qty            (Number)          â€” Stock quantity
+    offers         ([Offer])         â€” Merchant offers (offerId, price, qty, merchant)
+    regionId       (Number)          â€” Region code
+    tags           ([String])        â€” Tags (e.g., "base", "prepaid")
+    isCard         (Boolean)         â€” True if gift card/subscription
+    platform       (String)          â€” Platform name (original from Kinguin)
+    genres         ([String])        â€” Game genres
+    activationDetails (String)       â€” How to activate the key
+    languages      ([String])        â€” Supported languages
+    systemRequirements (Mixed)       â€” PC system requirements
+    originalName   (String)          â€” Original game name
+    metacriticScore (Number)         â€” Metacritic rating
+    releaseDate    (String)          â€” Release date
+    publishers     ([String])        â€” Publisher names
+    developers     ([String])        â€” Developer names
+    videos         (Mixed)           â€” Trailer/gameplay videos
+    updatedAt      (Date)            â€” Last update from Kinguin
 
-  overrides:                         — Custom overrides (not overwritten by sync)
-    name           (String)          — Custom display name
-    description    (String)          — Custom description
-    images         (Mixed)           — Custom images
-    isAd           (Boolean)         — Mark as advertisement
+  overrides:                         â€” Custom overrides (not overwritten by sync)
+    name           (String)          â€” Custom display name
+    description    (String)          â€” Custom description
+    images         (Mixed)           â€” Custom images
+    isAd           (Boolean)         â€” Mark as advertisement
 
-  derived:                           — Computed fields (set by workers)
-    inStock        (Boolean, indexed) — Whether product has stock
-    priceMin       (Number, indexed)  — Minimum price in IQD
-    platformCanonical (String, indexed) — Normalized platform name
+  derived:                           â€” Computed fields (set by workers)
+    inStock        (Boolean, indexed) â€” Whether product has stock
+    priceMin       (Number, indexed)  â€” Minimum price in IQD
+    platformCanonical (String, indexed) â€” Normalized platform name
 
   flags:
-    hidden         (Boolean, indexed) — Hidden from catalog
-    removedAt      (Date)            — When product was removed upstream
+    hidden         (Boolean, indexed) â€” Hidden from catalog
+    removedAt      (Date)            â€” When product was removed upstream
 ```
 
 ### Orders.js
@@ -342,39 +343,39 @@ Stores customer orders with payment, Kinguin order, and key delivery data.
 
 ```
 Sub-schema: keySchema
-  serial           (String)          — The actual CD key / activation code
-  type             (String)          — Key type (e.g., "text")
-  name             (String)          — Product name for this key
-  kinguinId        (Number)          — Kinguin product ID
+  serial           (String)          â€” The actual CD key / activation code
+  type             (String)          â€” Key type (e.g., "text")
+  name             (String)          â€” Product name for this key
+  kinguinId        (Number)          â€” Kinguin product ID
 
 Sub-schema: orderItemSchema
-  product          (String)          — Product ID (as string)
-  quantity         (Number)          — How many ordered (default: 1)
-  unitPrice        (Number)          — Price per unit in IQD
-  Virtual: detail  — Populates full product data from KinguinProduct
+  product          (String)          â€” Product ID (as string)
+  quantity         (Number)          â€” How many ordered (default: 1)
+  unitPrice        (Number)          â€” Price per unit in IQD
+  Virtual: detail  â€” Populates full product data from KinguinProduct
 
 Fields:
-  user             (ObjectId, ref)   — Who placed the order
-  products         ([orderItem])     — Cart items (array of products)
-  product          (String)          — Legacy: single product ID
-  quantity         (Number)          — Legacy: single product quantity
-  unitPrice        (Number)          — Legacy: single product price
-  merchants        (ObjectId, ref)   — Seller/reseller (if applicable)
-  coupon           (String)          — Coupon code used
-  discount         (Number)          — Discount amount in IQD
-  totalPrice       (Number)          — Final price in IQD after discount
-  waylReference    (String)          — Wayl payment reference ID
-  country          (String)          — Customer country (default: "IQ")
-  waylPaymentStatus (String, enum)   — "pending", "paid", or "failed"
-  kinguinOrderId   (String)          — Kinguin order ID after placement
-  keys             ([keySchema])     — Delivered CD keys
-  key              (String)          — Legacy: single key field
-  status           (String, enum)    — Order lifecycle:
-                                       "pending"   → Created, waiting for payment
-                                       "wayle"     → Payment confirmed by Wayl
-                                       "kingwin"   → Order placed with Kinguin
-                                       "completed" → Keys delivered
-                                       "cancelled" → Order cancelled
+  user             (ObjectId, ref)   â€” Who placed the order
+  products         ([orderItem])     â€” Cart items (array of products)
+  product          (String)          â€” Legacy: single product ID
+  quantity         (Number)          â€” Legacy: single product quantity
+  unitPrice        (Number)          â€” Legacy: single product price
+  merchants        (ObjectId, ref)   â€” Seller/reseller (if applicable)
+  coupon           (String)          â€” Coupon code used
+  discount         (Number)          â€” Discount amount in IQD
+  totalPrice       (Number)          â€” Final price in IQD after discount
+  waylReference    (String)          â€” Wayl payment reference ID
+  country          (String)          â€” Customer country (default: "IQ")
+  waylPaymentStatus (String, enum)   â€” "pending", "paid", or "failed"
+  kinguinOrderId   (String)          â€” Kinguin order ID after placement
+  keys             ([keySchema])     â€” Delivered CD keys
+  key              (String)          â€” Legacy: single key field
+  status           (String, enum)    â€” Order lifecycle:
+                                       "pending"   â†’ Created, waiting for payment
+                                       "wayle"     â†’ Payment confirmed by Wayl
+                                       "kingwin"   â†’ Order placed with Kinguin
+                                       "completed" â†’ Keys delivered
+                                       "cancelled" â†’ Order cancelled
 
 Post-query hooks:
   After find/findOne/findOneAndUpdate: attaches product details to each cart item
@@ -387,14 +388,14 @@ Post-query hooks:
 
 ```
 Fields:
-  code             (String, unique)  — Coupon code (e.g., "SAVE10")
-  type             (String, enum)    — "percent" or "fixed"
-  value            (Number)          — Percentage (0-100) or fixed IQD amount
-  expiresAt        (Date)            — When coupon expires
-  active           (Boolean)         — Whether coupon is active
+  code             (String, unique)  â€” Coupon code (e.g., "SAVE10")
+  type             (String, enum)    â€” "percent" or "fixed"
+  value            (Number)          â€” Percentage (0-100) or fixed IQD amount
+  expiresAt        (Date)            â€” When coupon expires
+  active           (Boolean)         â€” Whether coupon is active
 
 Methods:
-  applyDiscount(subtotal)            — Returns the discount amount in IQD
+  applyDiscount(subtotal)            â€” Returns the discount amount in IQD
                                        Returns 0 if inactive or expired
                                        For percent: rounds to nearest integer
 ```
@@ -407,9 +408,9 @@ type                ("percent" | "fixed")
 value               (FLOAT)
 expiresAt           (DATE, optional)
 active              (BOOLEAN, default true)
-users               (JSONB array of user ids) — legacy list of redeemers
+users               (JSONB array of user ids) â€” legacy list of redeemers
 maxUsesPerUser      (INTEGER, default 1)
-userUsageByUserId   (JSONB object: userId → usage count)
+userUsageByUserId   (JSONB object: userId â†’ usage count)
 ```
 
 Discount preview uses `applyCoupon`; **persisted usage** is updated when an order is first marked paid on the Wayl callback (`consumeCouponUsageForOrder` in `orderController.js`), not on `POST /api/v1/coupon/apply`.
@@ -420,11 +421,11 @@ Advertisements/banners shown on the frontend.
 
 ```
 Fields:
-  title            (String, required) — Ad title
-  adPicture        (String)           — Image URL on R2
-  link             (String)           — Where the ad links to
-  position         (String)           — Where to show the ad on the page
-  active           (Boolean)          — Whether ad is active (default: true)
+  title            (String, required) â€” Ad title
+  adPicture        (String)           â€” Image URL on R2
+  link             (String)           â€” Where the ad links to
+  position         (String)           â€” Where to show the ad on the page
+  active           (Boolean)          â€” Whether ad is active (default: true)
 ```
 
 ### homeModel.js
@@ -434,23 +435,23 @@ Homepage content configuration (single document).
 ```
 Fields:
   mainSection:
-    mainTitle      (String)           — Hero section title
-    subTitle       (String)           — Hero section subtitle
-    mainImage      (String)           — Hero background image URL
+    mainTitle      (String)           â€” Hero section title
+    subTitle       (String)           â€” Hero section subtitle
+    mainImage      (String)           â€” Hero background image URL
 
-  mainCategories:  (Array)            — Featured categories on homepage
-    title          (String)           — Category title
-    description    (String)           — Category description
+  mainCategories:  (Array)            â€” Featured categories on homepage
+    title          (String)           â€” Category title
+    description    (String)           â€” Category description
 
   about:
-    storeDescription (String)         — About us text
-    ourPartners    ([String])         — Partner names/logos
-    aboutImage     (String)           — About section image URL
+    storeDescription (String)         â€” About us text
+    ourPartners    ([String])         â€” Partner names/logos
+    aboutImage     (String)           â€” About section image URL
 
   footer:
-    email          (String)           — Contact email
-    phoneNumber    (String)           — Contact phone
-    aboutDowera    (String)           — About the company text
+    email          (String)           â€” Contact email
+    phoneNumber    (String)           â€” Contact phone
+    aboutDowera    (String)           â€” About the company text
     socialMediaLinks:
       facebookLink   (String)
       instagramLink  (String)
@@ -463,12 +464,12 @@ Stores/merchants for product organization.
 
 ```
 Fields:
-  name             (String, required) — Store name
-  logoImage        (String)           — Logo URL on R2
-  description      (String)           — Store description
+  name             (String, required) â€” Store name
+  logoImage        (String)           â€” Logo URL on R2
+  description      (String)           â€” Store description
 
 Virtuals:
-  productIds       — References products belonging to this store
+  productIds       â€” References products belonging to this store
 ```
 
 ### tagsModel.js
@@ -477,11 +478,11 @@ Product tags for filtering and organization.
 
 ```
 Fields:
-  name             (String, unique)   — Tag name
-  color            (String, required) — Display color (hex code)
+  name             (String, unique)   â€” Tag name
+  color            (String, required) â€” Display color (hex code)
 
 Virtuals:
-  productCount     — Count of products with this tag
+  productCount     â€” Count of products with this tag
 ```
 
 ### categoriesModel.js
@@ -490,10 +491,10 @@ Hierarchical product categories (base and subcategories).
 
 ```
 Fields:
-  name             (String, unique)   — Category name
-  isFeatured       (Boolean)          — Show on homepage
-  categoryType     (String, enum)     — "base" or "sub"
-  baseCategory     (ObjectId, ref)    — Parent category (required if type is "sub")
+  name             (String, unique)   â€” Category name
+  isFeatured       (Boolean)          â€” Show on homepage
+  categoryType     (String, enum)     â€” "base" or "sub"
+  baseCategory     (ObjectId, ref)    â€” Parent category (required if type is "sub")
 ```
 
 ### productsModel.js
@@ -502,17 +503,17 @@ General product catalog (non-Kinguin products, e.g., physical products).
 
 ```
 Fields:
-  name             (String)           — Product name
-  isVisible        (Boolean)          — Show in catalog (default: true)
-  originalPrice    (Number)           — Base price
-  isBestseller     (Boolean)          — Bestseller badge
-  isNew            (Boolean)          — New product badge
-  category         (String)           — Category name
-  image            (String, required) — Product image URL
-  sizes            ([{price, size}])  — Size/variant options
-  description      (String)           — Product description
-  store            (ObjectId, ref)    — Belongs to which store
-  productStock     (Number)           — Stock quantity
+  name             (String)           â€” Product name
+  isVisible        (Boolean)          â€” Show in catalog (default: true)
+  originalPrice    (Number)           â€” Base price
+  isBestseller     (Boolean)          â€” Bestseller badge
+  isNew            (Boolean)          â€” New product badge
+  category         (String)           â€” Category name
+  image            (String, required) â€” Product image URL
+  sizes            ([{price, size}])  â€” Size/variant options
+  description      (String)           â€” Product description
+  store            (ObjectId, ref)    â€” Belongs to which store
+  productStock     (Number)           â€” Stock quantity
 ```
 
 ### reviewsModel.js
@@ -521,11 +522,11 @@ Product reviews with automatic rating aggregation.
 
 ```
 Fields:
-  userName         (String, required) — Reviewer name
-  date             (String, required) — Review date
-  rating           (Number, required) — Rating score
-  product          (ObjectId, ref)    — Which product this reviews
-  comment          (String)           — Review text
+  userName         (String, required) â€” Reviewer name
+  date             (String, required) â€” Review date
+  rating           (Number, required) â€” Rating score
+  product          (ObjectId, ref)    â€” Which product this reviews
+  comment          (String)           â€” Review text
 
 Post-save hook:   Recalculates average rating on the product
 Post-delete hook: Recalculates average rating after deletion
@@ -537,13 +538,13 @@ Tracks sync configuration and state.
 
 ```
 SyncProfile schema:
-  name             (String, unique)   — Profile name (e.g., "default")
-  filters          (Mixed)            — Filters sent to Kinguin API
-  fields           ([String])         — Which fields to store
+  name             (String, unique)   â€” Profile name (e.g., "default")
+  filters          (Mixed)            â€” Filters sent to Kinguin API
+  fields           ([String])         â€” Which fields to store
 
 SyncState schema:
-  key              (String, unique)   — State key (e.g., "lastSync")
-  value            (Mixed)            — State value (e.g., ISO timestamp)
+  key              (String, unique)   â€” State key (e.g., "lastSync")
+  value            (Mixed)            â€” State value (e.g., ISO timestamp)
 ```
 
 ### PhysicalProduct.js & PhysicalOrder.js
@@ -556,17 +557,17 @@ Sequelize model for **CMS articles** (storefront content, help pages, blog-style
 
 ```
 Fields:
-  id               (UUID, PK)        — Primary key
-  slug             (String, unique)  — URL segment (unique; collisions get -2, -3, …)
-  title            (String)          — Headline
-  excerpt          (TEXT, optional)  — Short preview
-  body             (TEXT)            — Full content (HTML or markdown as stored)
-  status           (ENUM)            — "draft" or "published" (default: draft)
-  publishedAt      (DATE, optional)  — Set when published (or on first publish)
-  createdAt/updatedAt                 — Sequelize timestamps
+  id               (UUID, PK)        â€” Primary key
+  slug             (String, unique)  â€” URL segment (unique; collisions get -2, -3, â€¦)
+  title            (String)          â€” Headline
+  excerpt          (TEXT, optional)  â€” Short preview
+  body             (TEXT)            â€” Full content (HTML or markdown as stored)
+  status           (ENUM)            â€” "draft" or "published" (default: draft)
+  publishedAt      (DATE, optional)  â€” Set when published (or on first publish)
+  createdAt/updatedAt                 â€” Sequelize timestamps
 
 Indexes:
-  (status, publishedAt)              — Efficient public listing of published posts
+  (status, publishedAt)              â€” Efficient public listing of published posts
 ```
 
 Public API only returns rows with `status: "published"`. Admin dashboard can list and edit drafts.
@@ -666,7 +667,7 @@ waylCallback (POST /api/v1/orders/wayl-callback)
   Called by Wayl after customer completes payment.
   1. Validates paid status from the webhook payload
   2. Finds order by waylReference
-  3. On first transition to paid: markOrderPaidAndConsumeCouponOnce → consumeCouponUsageForOrder
+  3. On first transition to paid: markOrderPaidAndConsumeCouponOnce â†’ consumeCouponUsageForOrder
      increments Postgres coupon usage (userUsageByUserId) and updates users[] when the order has a coupon
   4. Updates status to "wayle" (payment confirmed)
   5. Builds Kinguin order payload from cart items
@@ -698,7 +699,7 @@ normStr(s)
 
 normalizePlatform(p)
   Converts platform names to canonical forms.
-  Examples: "Steam" → "pc steam", "Uplay" → "pc ubisoft connect"
+  Examples: "Steam" â†’ "pc steam", "Uplay" â†’ "pc ubisoft connect"
 
 buildListQuery(qs)
   Builds a Sequelize WHERE (JSONB on `remote`, `derived`, `overrides`, `flags`) from query parameters.
@@ -711,7 +712,7 @@ buildListQuery(qs)
 listProducts (GET /api/v1/products)
   1. buildListQuery + pagination and sort
   2. Loads rows from KinguinProduct (Postgres)
-  3. IQD → visitor currency via convertFromIQD (IP / config)
+  3. IQD â†’ visitor currency via convertFromIQD (IP / config)
   4. Optional batch ITAD refresh for official-store pricing (skipped when `q` search is used)
   5. Large JSON payload per item (includes `remote` for debugging)
   6. Each item includes `seo`: `{ lastModified, path }` for sitemap `lastmod` (ISO 8601 from row `updatedAt`) and a stable storefront path (`/games/:kinguinId`), without repeating full descriptions on list rows.
@@ -787,10 +788,10 @@ getDashboardStats (GET /api/v1/dashboard/stats)
 Manages homepage content (single document).
 
 ```
-getHomeSection    — Returns the homepage configuration document
-createHomeSection — Creates homepage config (only one allowed)
+getHomeSection    â€” Returns the homepage configuration document
+createHomeSection â€” Creates homepage config (only one allowed)
                     Handles mainImage and aboutImage uploads
-updateHomeSection — Updates homepage config
+updateHomeSection â€” Updates homepage config
                     Tracks old images for S3 deletion when replaced
 ```
 
@@ -799,11 +800,11 @@ updateHomeSection — Updates homepage config
 CRUD for stores/merchants.
 
 ```
-createStore  — Creates store with optional logoImage upload
-getStores    — Lists stores (admins see all fields, others exclude coupons)
-getStore     — Gets single store by ID
-updateStore  — Updates store, handles logo image replacement and S3 cleanup
-deleteStore  — Deletes store and its associated S3 images
+createStore  â€” Creates store with optional logoImage upload
+getStores    â€” Lists stores (admins see all fields, others exclude coupons)
+getStore     â€” Gets single store by ID
+updateStore  â€” Updates store, handles logo image replacement and S3 cleanup
+deleteStore  â€” Deletes store and its associated S3 images
 ```
 
 ### adsController.js
@@ -811,11 +812,11 @@ deleteStore  — Deletes store and its associated S3 images
 CRUD for advertisements/banners.
 
 ```
-createAd   — Creates ad using factory
-getAds     — Lists all ads with filtering/sorting
-getAd      — Gets single ad by ID
-updateAd   — Updates ad, handles image replacement and S3 cleanup
-deleteAd   — Deletes ad and its S3 image
+createAd   â€” Creates ad using factory
+getAds     â€” Lists all ads with filtering/sorting
+getAd      â€” Gets single ad by ID
+updateAd   â€” Updates ad, handles image replacement and S3 cleanup
+deleteAd   â€” Deletes ad and its S3 image
 ```
 
 ### tagsController.js
@@ -823,11 +824,11 @@ deleteAd   — Deletes ad and its S3 image
 CRUD for product tags.
 
 ```
-getAllTags  — Lists tags using factory
-getTag     — Gets single tag
-createTag  — Creates tag
-updateTag  — Updates tag
-deleteTag  — Deletes tag (prevents deletion if products use it)
+getAllTags  â€” Lists tags using factory
+getTag     â€” Gets single tag
+createTag  â€” Creates tag
+updateTag  â€” Updates tag
+deleteTag  â€” Deletes tag (prevents deletion if products use it)
 ```
 
 ### userControllers.js
@@ -835,11 +836,11 @@ deleteTag  — Deletes tag (prevents deletion if products use it)
 Admin-only user management using factory pattern.
 
 ```
-createUserAdmin  — Creates user (admin)
-getUsersAdmin    — Lists users with filtering/sorting
-getUserAdmin     — Gets single user
-updateUserAdmin  — Updates user
-deleteUserAdmin  — Deletes user
+createUserAdmin  â€” Creates user (admin)
+getUsersAdmin    â€” Lists users with filtering/sorting
+getUserAdmin     â€” Gets single user
+updateUserAdmin  â€” Updates user
+deleteUserAdmin  â€” Deletes user
 ```
 
 ### userDashboardController.js
@@ -847,10 +848,10 @@ deleteUserAdmin  — Deletes user
 User profile management (admin and self-service).
 
 ```
-getMyProfileDetails — Gets own profile (admins can view any user)
-deleteMe            — Self-deactivation (sets isActive: false)
-adminDeleteUser     — Admin deactivates a user
-getUsers            — Admin lists all users
+getMyProfileDetails â€” Gets own profile (admins can view any user)
+deleteMe            â€” Self-deactivation (sets isActive: false)
+adminDeleteUser     â€” Admin deactivates a user
+getUsers            â€” Admin lists all users
 ```
 
 ### userProfileControllers.js
@@ -858,9 +859,9 @@ getUsers            — Admin lists all users
 Self-service profile updates.
 
 ```
-updateProfileData  — Updates name, governorate, city, address
-updateProfileImage — Updates profile picture on R2 (deletes old image)
-deleteUser         — Self-deactivation
+updateProfileData  â€” Updates name, governorate, city, address
+updateProfileImage â€” Updates profile picture on R2 (deletes old image)
+deleteUser         â€” Self-deactivation
 ```
 
 ### errorControllers.js
@@ -870,12 +871,12 @@ Global Express error handling middleware.
 ```
 In development: Returns full error with stack trace
 In production:  Returns user-friendly messages for known errors:
-  - CastError      → "Invalid {field}: {value}" (400)
-  - ValidationError → Field-specific messages (400)
-  - Duplicate key   → "Duplicate field value" (400)
-  - JWT error       → "Invalid token" (401)
-  - Token expired   → "Token expired" (401)
-  - Unknown errors  → "Something went wrong" (500)
+  - CastError      â†’ "Invalid {field}: {value}" (400)
+  - ValidationError â†’ Field-specific messages (400)
+  - Duplicate key   â†’ "Duplicate field value" (400)
+  - JWT error       â†’ "Invalid token" (401)
+  - Token expired   â†’ "Token expired" (401)
+  - Unknown errors  â†’ "Something went wrong" (500)
 ```
 
 ### articleController.js
@@ -883,13 +884,13 @@ In production:  Returns user-friendly messages for known errors:
 CMS articles: **public** handlers (published-only listing and by-slug) and **admin** CRUD (all statuses). Uses `catchAsyncErrors`, `AppError`, and helpers `slugify` / `resolveUniqueSlug` for unique slugs.
 
 ```
-listPublished     — GET (public): paginated published articles (?page, ?limit; limit max 50)
-getPublishedBySlug — GET (public): one published article by slug (404 if missing)
-listAdmin         — GET (admin): all articles, newest updatedAt first
-getById           — GET (admin): by UUID
-create            — POST (admin): requires title + body; optional slug, excerpt, status, publishedAt
-update            — PATCH (admin): partial fields; slug uniqueness on change; publishedAt rules on publish
-delete            — DELETE (admin): 204 on success
+listPublished     â€” GET (public): paginated published articles (?page, ?limit; limit max 50)
+getPublishedBySlug â€” GET (public): one published article by slug (404 if missing)
+listAdmin         â€” GET (admin): all articles, newest updatedAt first
+getById           â€” GET (admin): by UUID
+create            â€” POST (admin): requires title + body; optional slug, excerpt, status, publishedAt
+update            â€” PATCH (admin): partial fields; slug uniqueness on change; publishedAt rules on publish
+delete            â€” DELETE (admin): 204 on success
 ```
 
 ---
@@ -950,7 +951,7 @@ delete            — DELETE (admin): 204 on success
 | GET | `/ganraGames` | Public | `productsControllers.listGanraGames` | **Compact** genre listing: `genres` **required**; returns name, price, genres, image, `flags`; same filters as `/` except response shape |
 | GET | `/gift-cards` | Public | `productsControllers.listGiftCards` | Same as `/` with `isCard=true` (gift cards / prepaid) |
 | POST | `/best-deals` | Public | `productsControllers.listBestDeals` | Returns top discounted games vs official `regularAmount`; requires `minDiscountPercent` in body, optional `limit` (default 20, clamped 1..100), sorted by metacritic score then savings |
-| GET | `/popular-games` | Public | `productsControllers.listPopularGames` | ITAD “popular games” feed (external API; not the local DB catalog) |
+| GET | `/popular-games` | Public | `productsControllers.listPopularGames` | ITAD â€œpopular gamesâ€ feed (external API; not the local DB catalog) |
 | GET | `/ads` | Public | `adsControllers.getAds` | List advertisements |
 | GET | `/ads/:id` | Public | `adsControllers.getAd` | Get single ad |
 | GET | `/:kinguinId` (numeric only) | Public | `productsControllers.getProduct` | Get product details |
@@ -1123,10 +1124,10 @@ Behavior:
 | Field | Required | Notes |
 |-------|----------|--------|
 | `type` | Yes | `"percent"` or `"fixed"` |
-| `value` | Yes | Percent (0–100) or fixed IQD amount |
+| `value` | Yes | Percent (0â€“100) or fixed IQD amount |
 | `expiresAt` | No | ISO date or `null` |
 | `codName` | No | Custom code (normalized to uppercase); if omitted, server generates a segmented code |
-| `maxUsesPerUser` | No | Integer ≥ 1 (default 1) |
+| `maxUsesPerUser` | No | Integer â‰¥ 1 (default 1) |
 
 **`POST /apply` body**
 
@@ -1145,14 +1146,14 @@ Both derive data from **`buildUsageMap`** (`utils/coupon.js`): merge of **`userU
 - **`/users/count`** returns `count` = number of distinct user ids in the merged map.
 - **`/users`** returns `{ id, fullName, usageCount }` per id. `fullName` is resolved from Postgres **`Users`**; if the stored id does not match a row in `Users`, `fullName` may be `null` while `usageCount` is still correct.
 
-Until at least one successful **paid** order callback has run with that coupon, maps are usually empty → **`users: []`** and **`count: 0`** even after **`POST /apply`** (apply only validates pricing and limits).
+Until at least one successful **paid** order callback has run with that coupon, maps are usually empty â†’ **`users: []`** and **`count: 0`** even after **`POST /apply`** (apply only validates pricing and limits).
 
 Protect **`/create`** and **`/delete`** in production (admin-only or internal tooling).
 
 Coupon redemption timing:
 
 - `POST /api/v1/coupon/apply` validates eligibility and returns discount math; it does **not** persist usage.
-- Per-user usage is incremented when the order is first marked paid in **`POST /api/v1/orders/wayl-callback`** (`markOrderPaidAndConsumeCouponOnce` → `consumeCouponUsageForOrder`).
+- Per-user usage is incremented when the order is first marked paid in **`POST /api/v1/orders/wayl-callback`** (`markOrderPaidAndConsumeCouponOnce` â†’ `consumeCouponUsageForOrder`).
 - Duplicate paid callbacks for the same finalized order do not consume again.
 
 **Data repair / migration**
@@ -1173,7 +1174,7 @@ Requires a reachable Postgres URL; asserts apply-vs-callback consumption and per
 
 ### sellerRoutes.js
 
-**Base path:** `/api/v1/seller` (router exists in `routes/sellerRoutes.js` but is **not** mounted in `app.js` today—enable by adding `app.use("/api/v1/seller", sellerRoutes)` when needed).
+**Base path:** `/api/v1/seller` (router exists in `routes/sellerRoutes.js` but is **not** mounted in `app.js` todayâ€”enable by adding `app.use("/api/v1/seller", sellerRoutes)` when needed).
 
 | Method | Path | Auth | Handler | Description |
 |--------|------|------|---------|-------------|
@@ -1209,25 +1210,25 @@ Full catalog import from Kinguin ESA API to MongoDB. Run manually for initial se
 
 ```
 Configuration (lines 36-51):
-  KINGUIN_BASE     — API base URL (https://gateway.kinguin.net/esa/api)
-  KINGUIN_KEY      — API key from environment
-  PAGE_SIZE        — Products per page (100, API maximum)
-  CONCURRENCY      — Parallel page fetchers (default: 10)
-  EUR_TO_IQD       — Exchange rate (default: 1535)
-  IQD_MARKUP       — Fixed markup in IQD (default: 5800)
+  KINGUIN_BASE     â€” API base URL (https://gateway.kinguin.net/esa/api)
+  KINGUIN_KEY      â€” API key from environment
+  PAGE_SIZE        â€” Products per page (100, API maximum)
+  CONCURRENCY      â€” Parallel page fetchers (default: 10)
+  EUR_TO_IQD       â€” Exchange rate (default: 1535)
+  IQD_MARKUP       â€” Fixed markup in IQD (default: 5800)
 
 Strict filtering rules (lines 53-127):
-  ALLOWED_REGION_IDS   — [3, 5, 19, 21, 24, 28, 30, 34, 40, 55, 56, 58, 80]
-  ALLOWED_PLATFORMS    — PC Steam, PC Epic, Xbox, PlayStation, Nintendo, etc.
-  ALLOWED_GENRES       — Action, Adventure, RPG, FPS, etc. (27 genres)
-  BLACKLIST_GENRES     — Adult Games, Software, Subscription, etc.
-  NAME_REQUIRE_RE      — Must contain "CD Key" (for non-card products)
-  NAME_EXCLUDE_RE      — Must NOT contain "account"
-  CARD_TITLE_WHITELIST — Exact titles for gift cards/subscriptions
+  ALLOWED_REGION_IDS   â€” [3, 5, 19, 21, 24, 28, 30, 34, 40, 55, 56, 58, 80]
+  ALLOWED_PLATFORMS    â€” PC Steam, PC Epic, Xbox, PlayStation, Nintendo, etc.
+  ALLOWED_GENRES       â€” Action, Adventure, RPG, FPS, etc. (27 genres)
+  BLACKLIST_GENRES     â€” Adult Games, Software, Subscription, etc.
+  NAME_REQUIRE_RE      â€” Must contain "CD Key" (for non-card products)
+  NAME_EXCLUDE_RE      â€” Must NOT contain "account"
+  CARD_TITLE_WHITELIST â€” Exact titles for gift cards/subscriptions
 
 Platform normalization (lines 128-263):
   Converts varied platform names to canonical forms.
-  "Steam" → "PC Steam", "Uplay" → "PC Ubisoft Connect", etc.
+  "Steam" â†’ "PC Steam", "Uplay" â†’ "PC Ubisoft Connect", etc.
   Uses synonym map + regex fallbacks.
 
 Price conversion (lines 288-333):
@@ -1256,7 +1257,7 @@ runImportAll() (lines 395-867):
      c. Region check (allowed regions only)
      d. Genre check (blacklist then allow-list)
      e. Platform check (normalize + allow-list)
-     f. Price check (must exist, < €130)
+     f. Price check (must exist, < â‚¬130)
   5. For products that pass: builds remote + derived data
   6. Upserts to MongoDB using bulkWrite (batch operations)
   7. Processes pages concurrently (10 workers)
@@ -1300,8 +1301,8 @@ run():
   2. Applies same filtering rules
   3. Builds a Set of valid product IDs
   4. Compares with local database
-  5. Products not in upstream → sets flags.hidden = true
-  6. Products that reappear → sets flags.hidden = false
+  5. Products not in upstream â†’ sets flags.hidden = true
+  6. Products that reappear â†’ sets flags.hidden = false
 
 CLI usage: node worker/reconcile.js
 ```
@@ -1325,7 +1326,7 @@ Line 17-33: cron.schedule() registers the job:
             4. Catches and logs errors
 
 Line 35-46: Graceful shutdown handlers:
-            SIGTERM/SIGINT → stops cron job, exits cleanly
+            SIGTERM/SIGINT â†’ stops cron job, exits cleanly
 ```
 
 ---
@@ -1337,16 +1338,16 @@ Line 35-46: Graceful shutdown handlers:
 Query builder class for MongoDB. Attaches to Mongoose queries.
 
 ```
-filter()       — Converts URL params to MongoDB operators:
-                 ?price[gte]=100 → { price: { $gte: 100 } }
+filter()       â€” Converts URL params to MongoDB operators:
+                 ?price[gte]=100 â†’ { price: { $gte: 100 } }
                  Supports: gte, gt, lte, lt, in
 
-sort()         — ?sort=price,-name → .sort("price -name")
+sort()         â€” ?sort=price,-name â†’ .sort("price -name")
                  Default: -createdAt (newest first)
 
-selectFields() — ?fields=name,price → .select("name price")
+selectFields() â€” ?fields=name,price â†’ .select("name price")
 
-paginate()     — Currently disabled (commented out)
+paginate()     â€” Currently disabled (commented out)
 ```
 
 ### appError.js
@@ -1377,7 +1378,7 @@ convertFromIQD(req, iqdAmount):
   1. Detects user IP from request headers
   2. Geolocates IP to country code using ipwho.is API
   3. Maps country to currency using REST Countries API (cached 7 days)
-  4. Gets IQD → target currency exchange rate (cached 1 hour)
+  4. Gets IQD â†’ target currency exchange rate (cached 1 hour)
      - Primary: Fawaz Ahmed free FX API
      - Fallback A: Cross-rate via USD
      - Fallback B: Open Exchange Rates API
@@ -1392,11 +1393,11 @@ Override: ?currency=USD or X-Currency header
 Generic CRUD handler factory. Creates Express handlers for any Mongoose model.
 
 ```
-deleteOne(Model)  — DELETE /:id → Deletes document, returns 204
-updateOne(Model)  — PATCH /:id  → Updates document (blocks password changes)
-createOne(Model)  — POST /      → Creates document, returns 201
-getOne(Model)     — GET /:id    → Gets document with optional populate
-getAll(Model)     — GET /       → Lists with filtering, sorting, pagination
+deleteOne(Model)  â€” DELETE /:id â†’ Deletes document, returns 204
+updateOne(Model)  â€” PATCH /:id  â†’ Updates document (blocks password changes)
+createOne(Model)  â€” POST /      â†’ Creates document, returns 201
+getOne(Model)     â€” GET /:id    â†’ Gets document with optional populate
+getAll(Model)     â€” GET /       â†’ Lists with filtering, sorting, pagination
                     Supports: category filter, tags filter, text search
                     Populates: category, tags, reviews, baseCategory
 ```
@@ -1423,9 +1424,9 @@ createMultiImageProcessingMiddleware(options):
 Client for IsThereAnyDeal API (official game store price comparison).
 
 ```
-lookupGameIdsByTitle(titles)  — Maps game titles to ITAD IDs
-getPricesByGameIds(gameIds)   — Gets prices for multiple games
-getOfficialDealForTitle(title) — Gets best deal from official stores:
+lookupGameIdsByTitle(titles)  â€” Maps game titles to ITAD IDs
+getPricesByGameIds(gameIds)   â€” Gets prices for multiple games
+getOfficialDealForTitle(title) â€” Gets best deal from official stores:
   Returns: { shopName, url, priceAmount, regularAmount, cut, ... }
   Used to show "Available on Steam for $X" comparisons.
 ```
@@ -1435,10 +1436,10 @@ getOfficialDealForTitle(title) — Gets best deal from official stores:
 Platform name normalization and ITAD shop ID mapping.
 
 ```
-PLATFORM_SYNONYMS  — Map of platform variants → canonical names
-normalizePlatform() — Converts platform string to canonical form
-getShopIdsForPlatform() — Returns ITAD shop IDs for a platform
-  Example: "PC Steam" → [61], "PC Epic Games" → [16]
+PLATFORM_SYNONYMS  â€” Map of platform variants â†’ canonical names
+normalizePlatform() â€” Converts platform string to canonical form
+getShopIdsForPlatform() â€” Returns ITAD shop IDs for a platform
+  Example: "PC Steam" â†’ [61], "PC Epic Games" â†’ [16]
 ```
 
 ### productSeo.js
@@ -1446,13 +1447,13 @@ getShopIdsForPlatform() — Returns ITAD shop IDs for a platform
 Builds **SEO** and **sitemap-oriented** fields for public product JSON (`GET /api/v1/products`, `GET /api/v1/products/ganraGames`, `GET /api/v1/products/:kinguinId`). No new routes; helpers are used from `productControllers.js`.
 
 ```
-stripHtmlToText / truncateMetaDescription — Plain-text meta description from HTML
-resolveCoverImageUrl — Cover image URL (overrides vs remote.images.cover)
-buildProductSeoDetail — Full `seo` object on product detail
-buildProductSeoListItem — `{ lastModified, path }` on each list row
+stripHtmlToText / truncateMetaDescription â€” Plain-text meta description from HTML
+resolveCoverImageUrl â€” Cover image URL (overrides vs remote.images.cover)
+buildProductSeoDetail â€” Full `seo` object on product detail
+buildProductSeoListItem â€” `{ lastModified, path }` on each list row
 ```
 
-Optional env: **`STOREFRONT_PUBLIC_URL`** — public site origin (no trailing slash required); when set, detail responses include absolute `seo.canonicalUrl`. If unset, `canonicalUrl` is `null` and clients may join `path` with their own base URL.
+Optional env: **`STOREFRONT_PUBLIC_URL`** â€” public site origin (no trailing slash required); when set, detail responses include absolute `seo.canonicalUrl`. If unset, `canonicalUrl` is `null` and clients may join `path` with their own base URL.
 
 ### s3Utils.js & deleteR2File.js
 
@@ -1492,31 +1493,31 @@ parseJsonBody(req, res, next):
 Validates that referenced categories and tags exist in the database.
 
 ```
-validateCategoryExists — Checks req.body.category exists in Categories collection
-validateTagsExist      — Checks all req.body.tags IDs exist in Tags collection
+validateCategoryExists â€” Checks req.body.category exists in Categories collection
+validateTagsExist      â€” Checks all req.body.tags IDs exist in Tags collection
 ```
 
 ### coupon.js (utils)
 
-**File:** `utils/coupon.js` — Postgres coupon helpers used by `routes/coupon.js` and checkout (`applyCoupon` is required from `orderController.js`).
+**File:** `utils/coupon.js` â€” Postgres coupon helpers used by `routes/coupon.js` and checkout (`applyCoupon` is required from `orderController.js`).
 
 ```
-normalizeCouponCode / normalizeUserId — trim + uppercase code / trim user id (internal)
+normalizeCouponCode / normalizeUserId â€” trim + uppercase code / trim user id (internal)
 
-buildUsageMap(coupon) — Exported. Canonical usage map:
+buildUsageMap(coupon) â€” Exported. Canonical usage map:
   - Starts from userUsageByUserId (object shallow-cloned)
   - For each id in legacy users[]: if no finite numeric count exists for that id, sets count to 1
   - Used by GET /:code/users, GET /:code/users/count, and applyCoupon limit checks
 
-applyCoupon(code, cartValue, userId) — Loads coupon from DB (case-insensitive code);
+applyCoupon(code, cartValue, userId) â€” Loads coupon from DB (case-insensitive code);
   checks active, expiry, maxUsesPerUser against buildUsageMap, type/value;
   returns { code, discount } (discount capped at cart value). Does not UPDATE the coupon row.
 
-createCoupon(type, value, expiresAt, codName, maxUsesPerUser) — INSERT; codName optional custom code
+createCoupon(type, value, expiresAt, codName, maxUsesPerUser) â€” INSERT; codName optional custom code
 
-deleteCoupon(code) — DELETE by code as stored
+deleteCoupon(code) â€” DELETE by code as stored
 
-generateCouponCode — Internal loop using coupon-code package until a DB-unique code exists
+generateCouponCode â€” Internal loop using coupon-code package until a DB-unique code exists
 ```
 
 ---
@@ -1528,10 +1529,10 @@ generateCouponCode — Internal loop using coupon-code package until a DB-unique
 Preconfigured Axios client for the Kinguin ESA API.
 
 ```
-client      — Axios instance with base URL and API key header pre-set
-withRetry() — Retries failed requests (429, 5xx) with exponential backoff
+client      â€” Axios instance with base URL and API key header pre-set
+withRetry() â€” Retries failed requests (429, 5xx) with exponential backoff
               Up to 4 retries, 2s base delay, 15s max, random jitter
-isoNowZ()   — Returns ISO timestamp without milliseconds: "2025-01-27T10:00:00Z"
+isoNowZ()   â€” Returns ISO timestamp without milliseconds: "2025-01-27T10:00:00Z"
 ```
 
 ---
@@ -1560,75 +1561,75 @@ gw-sync-reconcile:
 
 ```
 # Database
-MONGODB_URI              — MongoDB connection string
-MONGODB_DB               — Database name
+MONGODB_URI              â€” MongoDB connection string
+MONGODB_DB               â€” Database name
 
 # PostgreSQL (Sequelize / post-models: catalog, CMS articles, orders)
-POSTGRES_URI or DATABASE_URL — Connection URI (or POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD)
-DB_INIT_ON_STARTUP       — When "true", runs sequelize.sync() on startup (creates tables such as `articles`, `kinguin_products`)
-EXIT_ON_STARTUP_DB_FAILURE — Optional: exit process if DB schema is not ready
+POSTGRES_URI or DATABASE_URL â€” Connection URI (or POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD)
+DB_INIT_ON_STARTUP       â€” When "true", runs sequelize.sync() on startup (creates tables such as `articles`, `kinguin_products`)
+EXIT_ON_STARTUP_DB_FAILURE â€” Optional: exit process if DB schema is not ready
 
 # Authentication
-JWT_SECRET               — Secret for signing JWT tokens
-JWT_EXPIRES_IN           — Token expiration (e.g., "90d")
-JWT_COOKIE_EXPIRES_IN    — Cookie expiration in days
-ADMIN_PASSWORD           — Password required for admin signup
+JWT_SECRET               â€” Secret for signing JWT tokens
+JWT_EXPIRES_IN           â€” Token expiration (e.g., "90d")
+JWT_COOKIE_EXPIRES_IN    â€” Cookie expiration in days
+ADMIN_PASSWORD           â€” Password required for admin signup
 
 # Kinguin API
-KINGUIN_API_BASE         — Kinguin API base URL
-KINGUIN_API_KEY          — Kinguin API key
+KINGUIN_API_BASE         â€” Kinguin API base URL
+KINGUIN_API_KEY          â€” Kinguin API key
 
 # Wayl Payment Gateway
-WAYL_AUTH_KEY            — Wayl authentication key
-WAYL_BASE                — Wayl API base URL
-WAYL_SECRET              — Wayl webhook secret
-WAYL_r                   — Wayl webhook callback URL
+WAYL_AUTH_KEY            â€” Wayl authentication key
+WAYL_BASE                â€” Wayl API base URL
+WAYL_SECRET              â€” Wayl webhook secret
+WAYL_r                   â€” Wayl webhook callback URL
 
 # Twilio (OTP)
-TWILIO_ACCOUNT_SID       — Twilio account SID
-TWILIO_AUTH_TOKEN         — Twilio auth token
-TWILIO_SERVICE_SID       — Twilio Verify service SID
+TWILIO_ACCOUNT_SID       â€” Twilio account SID
+TWILIO_AUTH_TOKEN         â€” Twilio auth token
+TWILIO_SERVICE_SID       â€” Twilio Verify service SID
 
 # Cloudflare R2 (Image Storage)
-R2_ACCESS_KEY_ID         — R2 access key
-R2_SECRET_ACCESS_KEY     — R2 secret key
-R2_BUCKET_NAME           — R2 bucket name
-R2_ENDPOINT              — R2 endpoint URL
-R2_BUCKET_PATH           — Base path in bucket
-AWS_REGION               — Region (e.g., "auto")
+R2_ACCESS_KEY_ID         â€” R2 access key
+R2_SECRET_ACCESS_KEY     â€” R2 secret key
+R2_BUCKET_NAME           â€” R2 bucket name
+R2_ENDPOINT              â€” R2 endpoint URL
+R2_BUCKET_PATH           â€” Base path in bucket
+AWS_REGION               â€” Region (e.g., "auto")
 
 # Cloudflare Analytics
-CF_ZONE_ID               — Cloudflare zone ID
-CF_API_TOKEN             — Cloudflare API token
+CF_ZONE_ID               â€” Cloudflare zone ID
+CF_API_TOKEN             â€” Cloudflare API token
 
 # IsThereAnyDeal
-ITAD_API_KEY             — ITAD API key
-ITAD_DEFAULT_COUNTRY     — Default country for price lookup (e.g., "US")
+ITAD_API_KEY             â€” ITAD API key
+ITAD_DEFAULT_COUNTRY     â€” Default country for price lookup (e.g., "US")
 
 # Sync Configuration
-SYNC_PAGE_SIZE           — Products per page (default: 100)
-SYNC_CONCURRENCY         — Parallel workers (default: 10)
-SYNC_OVERLAP_MINUTES     — Overlap window for delta sync (default: 10)
-SYNC_SCHEDULE            — Cron schedule for internal scheduler
-ENABLE_INTERNAL_SCHEDULER — "true" to enable internal cron
+SYNC_PAGE_SIZE           â€” Products per page (default: 100)
+SYNC_CONCURRENCY         â€” Parallel workers (default: 10)
+SYNC_OVERLAP_MINUTES     â€” Overlap window for delta sync (default: 10)
+SYNC_SCHEDULE            â€” Cron schedule for internal scheduler
+ENABLE_INTERNAL_SCHEDULER â€” "true" to enable internal cron
 
 # Pricing
-EUR_TO_IQD               — EUR to IQD exchange rate (default: 1535)
-IQD_MARKUP               — Fixed markup in IQD (default: 5800)
+EUR_TO_IQD               â€” EUR to IQD exchange rate (default: 1535)
+IQD_MARKUP               â€” Fixed markup in IQD (default: 5800)
 
 # Storefront / SEO (optional)
-STOREFRONT_PUBLIC_URL    — Public website origin for product `seo.canonicalUrl` (e.g. https://yoursite.com). Omit trailing slash. If unset, `canonicalUrl` is null and the frontend can build absolute URLs from `seo.path`.
+STOREFRONT_PUBLIC_URL    â€” Public website origin for product `seo.canonicalUrl` (e.g. https://yoursite.com). Omit trailing slash. If unset, `canonicalUrl` is null and the frontend can build absolute URLs from `seo.path`.
 
 # Webhooks
-WEBHOOK_SECRET           — Secret for Kinguin webhook verification
+WEBHOOK_SECRET           â€” Secret for Kinguin webhook verification
 ```
 
 ### Example deployment (optional)
 
 A typical hosted instance exposes:
 
-- `GET /` → `{ "jason": "working" }` (smoke test)
-- `GET /healthz` → `{ "status": "ok" }`
+- `GET /` â†’ `{ "jason": "working" }` (smoke test)
+- `GET /healthz` â†’ `{ "status": "ok" }`
 
 Example staging host used for integration checks: `https://stage-backend.gamewiseiq.com` (replace with your own production URL in real docs).
 
@@ -1666,7 +1667,7 @@ How a purchase works end-to-end:
    c. Updates status to "wayle" (payment confirmed)
    d. Builds Kinguin order payload
    e. Calls Kinguin API to place order
-   f. Saves kinguinOrderId, status → "kingwin"
+   f. Saves kinguinOrderId, status â†’ "kingwin"
 
 8. KINGUIN processes the order and prepares keys
 
@@ -1677,11 +1678,11 @@ How a purchase works end-to-end:
     a. Finds order by kinguinOrderId
     b. Calls Kinguin API: GET /v2/order/{id}/keys
     c. Saves keys on the order
-    d. Updates status → "completed"
+    d. Updates status â†’ "completed"
 
 11. USER opens their order page
-    → Frontend calls GET /api/v1/orders/:id
-    → Backend returns order with keys (CD keys visible)
+    â†’ Frontend calls GET /api/v1/orders/:id
+    â†’ Backend returns order with keys (CD keys visible)
 
 12. BACKUP: If webhook was missed, getOrder lazily fetches keys
     from Kinguin when the user views the order.
@@ -1696,25 +1697,25 @@ How products are imported and kept up-to-date:
 ```
 INITIAL SETUP (run once):
   POST /api/v1/sync/import  OR  node worker/importAll.js
-  → Fetches ALL products from Kinguin (thousands of pages)
-  → Filters by region, platform, genre, name, price
-  → Converts EUR → IQD
-  → Stores in PostgreSQL `kinguin_products` (and related sync state)
+  â†’ Fetches ALL products from Kinguin (thousands of pages)
+  â†’ Filters by region, platform, genre, name, price
+  â†’ Converts EUR â†’ IQD
+  â†’ Stores in PostgreSQL `kinguin_products` (and related sync state)
 
 ONGOING SYNC (every 2 minutes via Render cron):
   POST /api/v1/sync/run  OR  node worker/deltaSync.js
-  → Reads lastSync timestamp from database
-  → Fetches only products updated since lastSync - 10min overlap
-  → Applies same filters
-  → Updates existing products or inserts new ones
-  → Saves new lastSync timestamp
+  â†’ Reads lastSync timestamp from database
+  â†’ Fetches only products updated since lastSync - 10min overlap
+  â†’ Applies same filters
+  â†’ Updates existing products or inserts new ones
+  â†’ Saves new lastSync timestamp
 
 DAILY RECONCILIATION (midnight UTC):
   POST /api/v1/sync/reconcile  OR  node worker/reconcile.js
-  → Fetches ALL valid product IDs from Kinguin
-  → Compares with local database
-  → Hides products no longer in Kinguin (flags.hidden = true)
-  → Unhides products that reappear
+  â†’ Fetches ALL valid product IDs from Kinguin
+  â†’ Compares with local database
+  â†’ Hides products no longer in Kinguin (flags.hidden = true)
+  â†’ Unhides products that reappear
 
 INTERNAL SCHEDULER (optional):
   Runs deltaSync automatically within the Node.js process
