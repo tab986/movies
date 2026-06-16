@@ -1,55 +1,29 @@
 {
-  "name": "movies",
+  "name": "movies-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Full-stack movies app (Express + Supabase Postgres + React)",
+  "main": "backend/server.js",
   "scripts": {
-    "start": "node server.js",
-    "validate:kinguin-startup": "node validateKinguinStartup.js",
-    "backfill:coupon-per-user-usage": "node backfillCouponPerUserUsage.js",
-    "verify:coupon-redemption-timing": "node verifyCouponRedemptionTiming.js"
+    "start": "node backend/server.js",
+    "dev": "nodemon backend/server.js",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "dev:all": "concurrently -n api,web -c blue,magenta \"nodemon backend/server.js\" \"npm run dev --prefix frontend\"",
+    "build:frontend": "npm run build --prefix frontend",
+    "migrate": "node scripts/migrate-sqlite-to-pg.js"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.888.0",
-    "@aws-sdk/lib-storage": "^3.888.0",
-    "@fortawesome/fontawesome-free": "6.7.2",
-    "@fortawesome/fontawesome-svg-core": "6.7.2",
-    "@fortawesome/free-brands-svg-icons": "6.7.2",
-    "@fortawesome/free-regular-svg-icons": "6.7.2",
-    "@fortawesome/free-solid-svg-icons": "6.7.2",
-    "@types/prismjs": "1.26.5",
-    "autoprefixer": "10.4.21",
-    "axios": "^1.6.2",
-    "bcryptjs": "^3.0.2",
-    "body-parser": "^1.20.2",
-    "cookie-parser": "^1.4.7",
-    "cors": "^2.8.5",
-    "coupon-code": "^0.4.5",
-    "crypto": "^1.0.1",
-    "dotenv": "^16.3.1",
-    "express": "^4.19.2",
-    "express-mongo-sanitize": "^2.2.0",
-    "express-rate-limit": "^7.0.0",
-    "helmet": "^7.0.0",
-    "hpp": "^0.2.3",
-    "http-server": "14.1.1",
-    "image-size": "2.0.2",
+    "better-sqlite3": "^11.7.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
     "jsonwebtoken": "^9.0.2",
-    "mongoose": "^8.21.1",
-    "morgan": "^1.10.0",
-    "multer": "^2.0.2",
-    "node-cron": "^3.0.3",
-    "nodemon": "^3.1.10",
-    "pg-hstore": "^2.3.4",
-    "postcss": "8.5.6",
-    "pptxgenjs": "4.0.0",
-    "prismjs": "1.30.0",
-    "sharp": "0.34.1",
-    "tailwindcss": "4.1.10",
-    "ts-node": "10.9.2",
-    "twilio": "^5.9.0",
-    "typescript": "5.8.3",
-    "xss-clean": "^0.1.1"
+    "pg": "^8.13.0"
   },
   "devDependencies": {
-    "pg": "^8.19.0",
-    "sequelize": "^6.37.7"
+    "concurrently": "^9.1.0",
+    "nodemon": "^3.1.7"
   }
 }

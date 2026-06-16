@@ -1,31 +1,35 @@
-# GameWise API — Docker image for Coolify, Contabo VPS, Render, etc.
-# Bookworm-based Node image avoids Ubuntu Noble mirror flakes; apt retries still guard `apt-get update`.
-FROM node:20-bookworm-slim
+# Movies full-stack app — builds React frontend, runs Express API + static UI
+FROM node:20-bookworm-slim AS frontend-build
 
-RUN printf '%s\n' \
-  'Acquire::Retries "5";' \
-  'Acquire::http::Timeout "120";' \
-  'Acquire::https::Timeout "120";' \
-  > /etc/apt/apt.conf.d/80-retries
+WORKDIR /app/frontend
 
-RUN set -eux; \
-  i=1; \
-  while [ "$i" -le 5 ]; do \
-    apt-get update && break; \
-    echo "apt-get update failed (attempt $i/5), retrying..." >&2; \
-    sleep 15; \
-    i=$((i + 1)); \
-  done; \
-  apt-get install -y --no-install-recommends ca-certificates; \
-  rm -rf /var/lib/apt/lists/*
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+
+COPY frontend/ ./
+
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_ANON_KEY
+ARG VITE_SUPABASE_PUBLISHABLE_KEY
+ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
+ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
+ENV VITE_SUPABASE_PUBLISHABLE_KEY=$VITE_SUPABASE_PUBLISHABLE_KEY
+
+RUN npm run build
+
+FROM node:20-bookworm-slim AS production
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-# sequelize/pg live under devDependencies today — install full tree until deps are reorganized
-RUN npm ci
+COPY package.json package-lock.json .npmrc ./
+RUN npm ci --omit=dev
 
-COPY . .
+COPY backend/ ./backend/
+COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 
 ENV NODE_ENV=production
 ENV PORT=5000
@@ -35,4 +39,4 @@ EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
   CMD node -e "const p=process.env.PORT||5000;require('http').get('http://127.0.0.1:'+p+'/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
 
-CMD ["node", "server.js"]
+CMD ["node", "backend/server.js"]

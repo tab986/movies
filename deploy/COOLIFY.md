@@ -1,59 +1,40 @@
-# Deploy on Coolify
+# Deploy Movies on Coolify
 
-Coolify builds and runs this repo from the root **Dockerfile**. No custom build command is required.
+Builds from the root **Dockerfile** (frontend + backend in one container).
 
 ## 1. Create the service
 
-1. In Coolify, add a **new resource** → **Application** (or Docker deploy from Git).
-2. Connect repository: `https://github.com/tab986/movies.git`, branch **`main`**.
-3. Set **Build pack** to **Dockerfile** and path **`Dockerfile`** (repo root).
-4. Set **Port** to match `PORT` in your env (default in `.env.example` is **5000**).
+1. **Application** → connect repo `tab986/movies`, branch **`main`**
+2. **Build pack:** Dockerfile (path: `Dockerfile`)
+3. **Port:** `5000`
+4. **Is it a static site?** No
 
 ## 2. Environment variables
 
-In Coolify → **Environment**, add variables from [`.env.example`](../.env.example). Minimum for production:
+Add in Coolify → **Environment** (mark build-time vars if Coolify offers that option):
 
-| Variable | Notes |
-|----------|--------|
-| `PORT` | Must match Coolify port mapping (e.g. `5000`) |
-| `NODE_ENV` | `production` |
-| `DATABASE_URL` | Supabase or linked Postgres connection string (`?sslmode=require` for managed DB) |
-| `DB_INIT_ON_STARTUP` | `true` once on a fresh database, then `false` |
-| `JWT_SECRET` | Long random string |
-| `KINGUIN_API_KEY` | Kinguin ESA key |
-| `WAYL_*` | Payment gateway keys and callback URL |
-| `R2_*` | Cloudflare R2 for uploads (if used) |
+| Variable | Runtime | Build |
+|----------|---------|-------|
+| `PORT` | `5000` | |
+| `NODE_ENV` | `production` | |
+| `DATABASE_URL` | Supabase Postgres URI | |
+| `SUPABASE_JWT_SECRET` | JWT secret from Supabase API settings | |
+| `TMDB_READ_ACCESS_TOKEN` | TMDB read token | |
+| `TMDB_API_KEY` | TMDB API key (optional if token set) | |
+| `VITE_SUPABASE_URL` | | Supabase project URL |
+| `VITE_SUPABASE_ANON_KEY` | | Supabase anon / publishable key |
 
-Do **not** paste `.env` from your laptop into git; use Coolify's secret UI only.
+Do not commit `.env` to git.
 
-## 3. Database
-
-- **Recommended:** external Postgres (e.g. Supabase). Set `DATABASE_URL` only.
-- **Alternative:** deploy a Postgres service in Coolify and set `DATABASE_URL` to the internal URL Coolify provides.
-
-## 4. Health check
+## 3. Health check
 
 | Setting | Value |
 |---------|--------|
 | Path | `/healthz` |
-| Expected | HTTP 200, body `{"status":"ok"}` |
-| Port | Same as `PORT` |
+| Port | `5000` |
 
-Catalog routes may return `503` until Postgres finishes startup; `/healthz` stays `200` for liveness.
+## 4. After deploy
 
-## 5. First deploy checklist
+Open your Coolify URL — you should see the **Movies** home page (not JSON).
 
-1. Push to `main` (or let Coolify pull latest).
-2. Set `DB_INIT_ON_STARTUP=true`, deploy once, confirm logs show `ready`.
-3. Set `DB_INIT_ON_STARTUP=false`, redeploy.
-4. Point your API domain (DNS) to Coolify's proxy / generated URL.
-5. Set `CORS_ALLOWED_ORIGINS` and `WAYL_WEBHOOK_URL` to the public API URL.
-
-## 6. Optional cron
-
-For delta sync without the in-process scheduler, use Coolify scheduled tasks or an external cron hitting:
-
-- `POST /api/v1/sync/run`
-- `POST /api/v1/sync/reconcile` (daily)
-
-See [HOST_CHECKLIST.txt](./HOST_CHECKLIST.txt) for mirror/build troubleshooting.
+If the UI loads but movies fail, check `TMDB_*` vars. If login/My List fails, check `DATABASE_URL` and `SUPABASE_JWT_SECRET`.
