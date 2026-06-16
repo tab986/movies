@@ -9,8 +9,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@supabase/ssr": "^0.10.2",
-    "@supabase/supabase-js": "^2.103.0",
     "axios": "^1.7.9",
     "movies-app": "file:..",
     "react": "^18.3.1",

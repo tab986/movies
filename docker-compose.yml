@@ -1,20 +1,8 @@
-# Optional local Postgres (DATABASE_SSL=false). Default plan uses Supabase cloud instead.
+# Optional: run the Movies API locally with Docker (no database).
 services:
-  db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: movies
-      POSTGRES_PASSWORD: movies
-      POSTGRES_DB: movies_app
+  api:
+    build: .
     ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U movies -d movies_app"]
-      interval: 3s
-      timeout: 5s
-      retries: 10
-
-volumes:
-  pgdata:
+      - "5000:5000"
+    env_file:
+      - .env

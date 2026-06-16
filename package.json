@@ -2,25 +2,21 @@
   "name": "movies-app",
   "version": "1.0.0",
   "private": true,
-  "description": "Full-stack movies app (Express + Supabase Postgres + React)",
+  "description": "Full-stack movies app (Express + TMDB + React)",
   "main": "backend/server.js",
   "scripts": {
     "start": "node backend/server.js",
     "dev": "nodemon backend/server.js",
     "dev:frontend": "npm run dev --prefix frontend",
     "dev:all": "concurrently -n api,web -c blue,magenta \"nodemon backend/server.js\" \"npm run dev --prefix frontend\"",
-    "build:frontend": "npm run build --prefix frontend",
-    "migrate": "node scripts/migrate-sqlite-to-pg.js"
+    "build:frontend": "npm run build --prefix frontend"
   },
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
-    "better-sqlite3": "^11.7.0",
     "dotenv": "^16.4.5",
-    "express": "^4.21.0",
-    "jsonwebtoken": "^9.0.2",
-    "pg": "^8.13.0"
+    "express": "^4.21.0"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",

@@ -82,7 +82,7 @@ export default function SearchPage() {
           </div>
         )}
         {!debounced.trim() && !loading && (
-          <p className="text-zinc-600">Enter a search term to see movies from the database.</p>
+          <p className="text-zinc-600">Enter a search term to browse movies from TMDB.</p>
         )}
       </div>
     </div>

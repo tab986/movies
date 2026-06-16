@@ -1,4 +1,3 @@
-const { pool } = require("../db");
 const tmdb = require("../services/tmdb");
 
 /**
@@ -63,72 +62,8 @@ async function searchMovies(req, res) {
   }
 }
 
-async function getMyList(req, res) {
-  try {
-    const result = await pool.query(
-      `SELECT movie_id FROM favorites WHERE user_id = $1 ORDER BY created_at DESC`,
-      [req.user.id]
-    );
-    const rows = result.rows;
-    const ids = rows.map((r) => r.movie_id);
-    const movies = await tmdb.fetchMoviesByIds(ids);
-    return res.json(movies);
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Could not load list." });
-  }
-}
-
-async function toggleMyList(req, res) {
-  try {
-    const movieId = Number(req.body?.movieId);
-    if (!Number.isInteger(movieId) || movieId < 1) {
-      return res.status(400).json({ error: "Valid movieId is required." });
-    }
-    const existsOnTmdb = await tmdb.movieExists(movieId);
-    if (!existsOnTmdb) {
-      return res.status(404).json({ error: "Movie not found on TMDB." });
-    }
-
-    const uid = req.user.id;
-    const existsRes = await pool.query(
-      `SELECT 1 FROM favorites WHERE user_id = $1 AND movie_id = $2`,
-      [uid, movieId]
-    );
-    if (existsRes.rows.length > 0) {
-      await pool.query(`DELETE FROM favorites WHERE user_id = $1 AND movie_id = $2`, [uid, movieId]);
-      return res.json({ inList: false, movieId });
-    }
-    await pool.query(`INSERT INTO favorites (user_id, movie_id) VALUES ($1, $2)`, [uid, movieId]);
-    return res.json({ inList: true, movieId });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Could not update list." });
-  }
-}
-
-async function myListStatus(req, res) {
-  try {
-    const movieId = Number(req.params.movieId);
-    if (!Number.isInteger(movieId) || movieId < 1) {
-      return res.status(400).json({ error: "Invalid movie id." });
-    }
-    const result = await pool.query(
-      `SELECT 1 FROM favorites WHERE user_id = $1 AND movie_id = $2`,
-      [req.user.id, movieId]
-    );
-    return res.json({ inList: result.rows.length > 0 });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Could not load status." });
-  }
-}
-
 module.exports = {
   getAllMovies,
   getMovieById,
   searchMovies,
-  getMyList,
-  toggleMyList,
-  myListStatus,
 };

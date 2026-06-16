@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink, useNavigate, useSearchParams } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
 
 export default function Navbar() {
-  const { user, isAuthenticated, logout } = useAuth();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [q, setQ] = useState(searchParams.get("q") || "");
@@ -68,9 +66,6 @@ export default function Navbar() {
           <NavLink to="/search" className={navLink} onClick={() => setOpen(false)}>
             Movies
           </NavLink>
-          <NavLink to="/search" className={navLink} onClick={() => setOpen(false)}>
-            TV Shows
-          </NavLink>
           <NavLink to="/my-list" className={navLink} onClick={() => setOpen(false)}>
             My List
           </NavLink>
@@ -96,46 +91,6 @@ export default function Navbar() {
             />
           </label>
         </form>
-
-        <div className="hidden items-center gap-3 md:flex">
-          {isAuthenticated ? (
-            <>
-              <span className="max-w-[120px] truncate text-sm text-zinc-400" title={user?.username}>
-                {user?.username}
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  logout();
-                  navigate("/");
-                }}
-                className="rounded-full border border-white/10 px-4 py-1.5 text-sm font-medium text-zinc-300 hover:border-white/30 hover:text-white"
-              >
-                Log out
-              </button>
-            </>
-          ) : (
-            <>
-              <Link
-                to="/login"
-                className="rounded-full border border-white/10 px-4 py-1.5 text-sm font-medium text-zinc-300 hover:border-white/30 hover:text-white"
-              >
-                Log in
-              </Link>
-              <Link
-                to="/register"
-                className="rounded-full bg-brand-red px-4 py-1.5 text-sm font-semibold text-white hover:bg-red-600"
-              >
-                Sign up
-              </Link>
-            </>
-          )}
-          <div className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-zinc-800">
-            <svg className="h-5 w-5 text-zinc-300" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
-            </svg>
-          </div>
-        </div>
       </div>
 
       <form onSubmit={onSearch} className="border-t border-white/5 px-4 py-2 md:hidden">

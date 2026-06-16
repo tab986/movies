@@ -1,16 +1,14 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import toast from "react-hot-toast";
-import { useAuth } from "../context/AuthContext";
-import { fetchMovie, myListStatus, toggleMyList } from "../services/api";
+import { useMyList } from "../hooks/useMyList";
+import { fetchMovie } from "../services/api";
 
 export default function MovieDetail() {
   const { id } = useParams();
-  const { isAuthenticated } = useAuth();
+  const { isInList, toggle } = useMyList();
   const [movie, setMovie] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [inList, setInList] = useState(false);
-  const [listLoading, setListLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -29,37 +27,12 @@ export default function MovieDetail() {
     };
   }, [id]);
 
-  useEffect(() => {
-    if (!isAuthenticated || !movie) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const s = await myListStatus(movie.id);
-        if (!cancelled) setInList(s.inList);
-      } catch {
-        /* ignore */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isAuthenticated, movie]);
+  const inList = movie ? isInList(movie.id) : false;
 
-  const handleToggleList = async () => {
-    if (!isAuthenticated) {
-      toast.error("Log in to use My List");
-      return;
-    }
-    setListLoading(true);
-    try {
-      const r = await toggleMyList(movie.id);
-      setInList(r.inList);
-      toast.success(r.inList ? "Added to My List" : "Removed from My List");
-    } catch {
-      toast.error("Could not update list");
-    } finally {
-      setListLoading(false);
-    }
+  const handleToggleList = () => {
+    if (!movie) return;
+    const added = toggle(movie.id);
+    toast.success(added ? "Added to My List" : "Removed from My List");
   };
 
   if (loading) {
@@ -119,7 +92,6 @@ export default function MovieDetail() {
               </button>
               <button
                 type="button"
-                disabled={listLoading}
                 onClick={handleToggleList}
                 className={`rounded-lg border px-5 py-2.5 text-sm font-semibold transition ${
                   inList
