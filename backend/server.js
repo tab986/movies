@@ -4,6 +4,13 @@ require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
 const movieRoutes = require("./routes/movieRoutes");
 
+function hasTmdbConfig() {
+  return Boolean(
+    (process.env.TMDB_READ_ACCESS_TOKEN && process.env.TMDB_READ_ACCESS_TOKEN.trim()) ||
+      (process.env.TMDB_API_KEY && process.env.TMDB_API_KEY.trim())
+  );
+}
+
 const app = express();
 const PORT = Number(process.env.PORT) || 5000;
 
@@ -46,5 +53,10 @@ if (process.env.NODE_ENV === "production") {
 }
 
 app.listen(PORT, "0.0.0.0", () => {
+  if (!hasTmdbConfig()) {
+    console.error(
+      "[startup] Missing TMDB_READ_ACCESS_TOKEN or TMDB_API_KEY — /api/movies will fail until you set one in Coolify Environment."
+    );
+  }
   console.log(`Movies app listening on http://0.0.0.0:${PORT}`);
 });

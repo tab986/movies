@@ -78,15 +78,25 @@ async function fetchMoviesCatalog() {
     () => tmdbGet("/movie/upcoming", { page: "1" }),
   ];
   const raw = [];
+  const errors = [];
   for (const fn of tasks) {
     try {
       const data = await fn();
       if (data?.results?.length) raw.push(...data.results);
     } catch (e) {
-      console.warn("TMDB catalog:", e.message);
+      const msg = e?.message || String(e);
+      errors.push(msg);
+      console.warn("TMDB catalog:", msg);
     }
   }
-  return dedupeMovies(raw);
+  const movies = dedupeMovies(raw);
+  if (movies.length === 0) {
+    throw new Error(
+      errors[0] ||
+        "No movies returned from TMDB. Set TMDB_READ_ACCESS_TOKEN or TMDB_API_KEY in the server environment (Coolify → Environment)."
+    );
+  }
+  return movies;
 }
 
 /**

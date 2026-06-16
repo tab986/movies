@@ -22,23 +22,28 @@ function partitionMovies(movies) {
 export default function Home() {
   const [movies, setMovies] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const data = await fetchMovies();
-        if (!cancelled) setMovies(data);
+        if (!cancelled) {
+          setMovies(Array.isArray(data) ? data : []);
+          if (!data?.length) {
+            setError("No movies returned. Check TMDB API keys on the server.");
+          }
+        }
       } catch (err) {
         if (!cancelled) {
           const msg =
             err?.response?.data?.error ||
             err?.message ||
             "Could not load movies.";
+          setError(msg);
           console.error(err);
-          toast.error(
-            `${msg} — In dev, run the API (npm run dev) and open http://localhost:5173`
-          );
+          toast.error(msg);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -56,6 +61,11 @@ export default function Home() {
 
   return (
     <div>
+      {error && !loading && (
+        <div className="mx-4 mt-4 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200 md:mx-10">
+          {error}
+        </div>
+      )}
       {hero && (
         <section className="relative -mt-[120px] mb-8 min-h-[62vh] md:-mt-[88px]">
           <div
