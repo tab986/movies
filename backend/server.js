@@ -44,8 +44,12 @@ app.use((err, req, res, next) => {
   res.status(status).json({ error: err.message || "Server error." });
 });
 
+const fs = require("fs");
 const frontendDist = path.join(__dirname, "..", "frontend", "dist");
-if (process.env.NODE_ENV === "production") {
+const shouldServeFrontend =
+  process.env.NODE_ENV === "production" || fs.existsSync(path.join(frontendDist, "index.html"));
+
+if (shouldServeFrontend) {
   app.use(express.static(frontendDist));
   app.get("*", (req, res) => {
     if (req.path.startsWith("/api")) {
@@ -56,14 +60,6 @@ if (process.env.NODE_ENV === "production") {
 }
 
 async function start() {
-  if (process.env.DATABASE_URL?.trim()) {
-    try {
-      await ensureSchema();
-    } catch (err) {
-      console.error("[startup] Database connection failed:", err.message || err);
-    }
-  }
-
   app.listen(PORT, "0.0.0.0", () => {
     if (!hasTmdbConfig()) {
       console.error(
@@ -75,6 +71,12 @@ async function start() {
     }
     console.log(`Movies app listening on http://0.0.0.0:${PORT}`);
   });
+
+  if (process.env.DATABASE_URL?.trim()) {
+    ensureSchema().catch((err) => {
+      console.error("[startup] Database connection failed:", err.message || err);
+    });
+  }
 }
 
 start();

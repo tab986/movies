@@ -1,12 +1,16 @@
-import { useEffect, useState } from "react";
-import { Link, NavLink, useNavigate, useSearchParams } from "react-router-dom";
+import { Suspense, useEffect, useState } from "react";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+
+function readSearchQuery(search) {
+  return new URLSearchParams(search).get("q") || "";
+}
 
 export default function Navbar() {
   const { user, isAuthenticated, logout } = useAuth();
-  const [searchParams] = useSearchParams();
+  const location = useLocation();
   const navigate = useNavigate();
-  const [q, setQ] = useState(searchParams.get("q") || "");
+  const [q, setQ] = useState(() => readSearchQuery(location.search));
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
@@ -17,8 +21,8 @@ export default function Navbar() {
   }, []);
 
   useEffect(() => {
-    setQ(searchParams.get("q") || "");
-  }, [searchParams]);
+    setQ(readSearchQuery(location.search));
+  }, [location.search]);
 
   const onSearch = (e) => {
     e.preventDefault();
@@ -138,6 +142,14 @@ export default function Navbar() {
           className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white"
         />
       </form>
+    </header>
+  );
+}
+
+export function NavbarFallback() {
+  return (
+    <header className="fixed left-0 right-0 top-0 z-50 border-b border-white/10 bg-black/90 px-4 py-3 md:px-10">
+      <span className="font-display text-2xl tracking-wide text-white">Tab</span>
     </header>
   );
 }

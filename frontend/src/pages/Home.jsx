@@ -101,6 +101,15 @@ export default function Home() {
         </section>
       )}
 
+      {!loading && movies.length === 0 && (
+        <div className="mx-4 mt-8 rounded-xl border border-white/10 bg-zinc-900/50 px-6 py-10 text-center md:mx-10">
+          <h2 className="font-display text-3xl text-white">No movies loaded yet</h2>
+          <p className="mt-2 text-sm text-zinc-400">
+            {error || "Check that TMDB API keys are set on the server, then redeploy."}
+          </p>
+        </div>
+      )}
+
       <div className="pb-8">
         <MovieRow title="Popular on Tab" subtitle="Highest audience scores" movies={popular} loading={loading} />
         <MovieRow title="Trending Now" subtitle="Recently added" movies={trending} loading={loading} />
