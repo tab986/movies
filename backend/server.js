@@ -60,6 +60,14 @@ if (shouldServeFrontend) {
 }
 
 async function start() {
+  if (process.env.DATABASE_URL?.trim()) {
+    try {
+      await ensureSchema();
+    } catch (err) {
+      console.error("[startup] Database schema failed:", err.message || err);
+    }
+  }
+
   app.listen(PORT, "0.0.0.0", () => {
     if (!hasTmdbConfig()) {
       console.error(
@@ -71,12 +79,6 @@ async function start() {
     }
     console.log(`Movies app listening on http://0.0.0.0:${PORT}`);
   });
-
-  if (process.env.DATABASE_URL?.trim()) {
-    ensureSchema().catch((err) => {
-      console.error("[startup] Database connection failed:", err.message || err);
-    });
-  }
 }
 
 start();

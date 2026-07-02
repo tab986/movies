@@ -1,6 +1,7 @@
+const { randomUUID } = require("crypto");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const { pool } = require("../db");
+const { pool, ensureSchema } = require("../db");
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
@@ -42,10 +43,11 @@ async function register(req, res) {
   const passwordHash = await bcrypt.hash(password, 12);
 
   try {
+    await ensureSchema();
     const result = await pool.query(
-      `INSERT INTO users (email, password_hash) VALUES ($1, $2)
+      `INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3)
        RETURNING id, email, created_at`,
-      [email, passwordHash]
+      [randomUUID(), email, passwordHash]
     );
     const user = result.rows[0];
     const token = signToken(user);
@@ -57,7 +59,11 @@ async function register(req, res) {
     if (err.code === "23505") {
       return res.status(409).json({ error: "An account with this email already exists." });
     }
-    console.error(err);
+    if (err.code === "42P01") {
+      console.error("[auth] users table missing after ensureSchema:", err.message);
+      return res.status(503).json({ error: "Database is not ready. Try again in a moment." });
+    }
+    console.error("[auth] register failed:", err.code, err.message);
     return res.status(500).json({ error: "Could not create account." });
   }
 }
@@ -78,6 +84,7 @@ async function login(req, res) {
   }
 
   try {
+    await ensureSchema();
     const result = await pool.query(
       `SELECT id, email, password_hash FROM users WHERE email = $1`,
       [email]

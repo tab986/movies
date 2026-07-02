@@ -1,4 +1,4 @@
-const { pool } = require("../db");
+const { pool, ensureSchema } = require("../db");
 const tmdb = require("../services/tmdb");
 
 function queryProvided(v) {
@@ -69,6 +69,7 @@ async function searchMovies(req, res) {
 async function getMyList(req, res) {
   if (!pool) return dbUnavailable(res);
   try {
+    await ensureSchema();
     const result = await pool.query(
       `SELECT movie_id FROM favorites WHERE user_id = $1 ORDER BY created_at DESC`,
       [req.user.id]
@@ -85,6 +86,7 @@ async function getMyList(req, res) {
 async function toggleMyList(req, res) {
   if (!pool) return dbUnavailable(res);
   try {
+    await ensureSchema();
     const movieId = Number(req.body?.movieId);
     if (!Number.isInteger(movieId) || movieId < 1) {
       return res.status(400).json({ error: "Valid movieId is required." });
@@ -119,6 +121,7 @@ async function toggleMyList(req, res) {
 async function myListStatus(req, res) {
   if (!pool) return dbUnavailable(res);
   try {
+    await ensureSchema();
     const movieId = Number(req.params.movieId);
     if (!Number.isInteger(movieId) || movieId < 1) {
       return res.status(400).json({ error: "Invalid movie id." });
