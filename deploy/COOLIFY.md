@@ -15,6 +15,7 @@ Builds from the root **Dockerfile** (frontend + backend in one container). **No 
 |----------|--------|
 | `PORT` | `5000` |
 | `NODE_ENV` | `production` |
+| `DATABASE_URL` | `postgresql://postgres:Postgres%402026%21Pass@<postgres-host>:5432/movies` |
 | `TMDB_READ_ACCESS_TOKEN` | Your TMDB read token |
 | `TMDB_API_KEY` | Your TMDB API key (optional if token set) |
 

@@ -6,9 +6,11 @@ import { fetchMovie } from "../services/api";
 
 export default function MovieDetail() {
   const { id } = useParams();
-  const { isInList, toggle } = useMyList();
+  const { isInList, toggle, checkStatus } = useMyList();
   const [movie, setMovie] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [listLoading, setListLoading] = useState(false);
+  const [inList, setInList] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -27,12 +29,34 @@ export default function MovieDetail() {
     };
   }, [id]);
 
-  const inList = movie ? isInList(movie.id) : false;
-
-  const handleToggleList = () => {
+  useEffect(() => {
     if (!movie) return;
-    const added = toggle(movie.id);
-    toast.success(added ? "Added to My List" : "Removed from My List");
+    let cancelled = false;
+    (async () => {
+      const status = await checkStatus(movie.id);
+      if (!cancelled) setInList(status);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [movie, checkStatus]);
+
+  useEffect(() => {
+    if (movie) setInList(isInList(movie.id));
+  }, [movie, isInList]);
+
+  const handleToggleList = async () => {
+    if (!movie) return;
+    setListLoading(true);
+    try {
+      const added = await toggle(movie.id);
+      setInList(added);
+      toast.success(added ? "Added to My List" : "Removed from My List");
+    } catch {
+      toast.error("Could not update list");
+    } finally {
+      setListLoading(false);
+    }
   };
 
   if (loading) {
@@ -92,6 +116,7 @@ export default function MovieDetail() {
               </button>
               <button
                 type="button"
+                disabled={listLoading}
                 onClick={handleToggleList}
                 className={`rounded-lg border px-5 py-2.5 text-sm font-semibold transition ${
                   inList

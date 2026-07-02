@@ -3,35 +3,21 @@ import toast from "react-hot-toast";
 import MovieCard from "../components/MovieCard";
 import SkeletonCard from "../components/SkeletonCard";
 import { useMyList } from "../hooks/useMyList";
-import { fetchMovie } from "../services/api";
+import { fetchMyList } from "../services/api";
 
 export default function MyList() {
-  const { ids } = useMyList();
+  const { ids, ready } = useMyList();
   const [movies, setMovies] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      if (ids.length === 0) {
-        if (!cancelled) {
-          setMovies([]);
-          setLoading(false);
-        }
-        return;
-      }
+      if (!ready) return;
       setLoading(true);
       try {
-        const results = await Promise.all(
-          ids.map(async (id) => {
-            try {
-              return await fetchMovie(id);
-            } catch {
-              return null;
-            }
-          })
-        );
-        if (!cancelled) setMovies(results.filter(Boolean));
+        const data = await fetchMyList();
+        if (!cancelled) setMovies(data);
       } catch {
         if (!cancelled) toast.error("Could not load your list.");
       } finally {
@@ -41,12 +27,12 @@ export default function MyList() {
     return () => {
       cancelled = true;
     };
-  }, [ids]);
+  }, [ready, ids]);
 
   return (
     <div className="min-h-[60vh] px-4 pb-16 md:px-10">
       <h1 className="font-display text-3xl tracking-wide text-white md:text-4xl">My List</h1>
-      <p className="mt-1 text-sm text-zinc-500">Saved on this device — no account needed.</p>
+      <p className="mt-1 text-sm text-zinc-500">Saved in your Postgres database on this device.</p>
 
       <div className="mt-10 flex flex-wrap gap-4">
         {loading &&

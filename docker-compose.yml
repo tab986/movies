@@ -1,8 +1,32 @@
-# Optional: run the Movies API locally with Docker (no database).
+# Local Postgres + Movies API
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: Postgres@2026!Pass
+      POSTGRES_DB: movies
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d movies"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   api:
     build: .
     ports:
       - "5000:5000"
     env_file:
       - .env
+    environment:
+      DATABASE_URL: postgresql://postgres:Postgres%402026%21Pass@postgres:5432/movies
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
