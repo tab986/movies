@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import toast from "react-hot-toast";
+import { useAuth } from "../context/AuthContext";
 import { useMyList } from "../hooks/useMyList";
 import { fetchMovie } from "../services/api";
 
 export default function MovieDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
   const { isInList, toggle, checkStatus } = useMyList();
   const [movie, setMovie] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -47,6 +50,11 @@ export default function MovieDetail() {
 
   const handleToggleList = async () => {
     if (!movie) return;
+    if (!isAuthenticated) {
+      toast.error("Log in to use My List");
+      navigate("/login", { state: { from: `/movie/${movie.id}` } });
+      return;
+    }
     setListLoading(true);
     try {
       const added = await toggle(movie.id);

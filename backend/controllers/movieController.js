@@ -70,8 +70,8 @@ async function getMyList(req, res) {
   if (!pool) return dbUnavailable(res);
   try {
     const result = await pool.query(
-      `SELECT movie_id FROM favorites WHERE client_id = $1 ORDER BY created_at DESC`,
-      [req.clientId]
+      `SELECT movie_id FROM favorites WHERE user_id = $1 ORDER BY created_at DESC`,
+      [req.user.id]
     );
     const ids = result.rows.map((r) => r.movie_id);
     const movies = await tmdb.fetchMoviesByIds(ids);
@@ -95,18 +95,18 @@ async function toggleMyList(req, res) {
     }
 
     const existsRes = await pool.query(
-      `SELECT 1 FROM favorites WHERE client_id = $1 AND movie_id = $2`,
-      [req.clientId, movieId]
+      `SELECT 1 FROM favorites WHERE user_id = $1 AND movie_id = $2`,
+      [req.user.id, movieId]
     );
     if (existsRes.rows.length > 0) {
-      await pool.query(`DELETE FROM favorites WHERE client_id = $1 AND movie_id = $2`, [
-        req.clientId,
+      await pool.query(`DELETE FROM favorites WHERE user_id = $1 AND movie_id = $2`, [
+        req.user.id,
         movieId,
       ]);
       return res.json({ inList: false, movieId });
     }
-    await pool.query(`INSERT INTO favorites (client_id, movie_id) VALUES ($1, $2)`, [
-      req.clientId,
+    await pool.query(`INSERT INTO favorites (user_id, movie_id) VALUES ($1, $2)`, [
+      req.user.id,
       movieId,
     ]);
     return res.json({ inList: true, movieId });
@@ -124,8 +124,8 @@ async function myListStatus(req, res) {
       return res.status(400).json({ error: "Invalid movie id." });
     }
     const result = await pool.query(
-      `SELECT 1 FROM favorites WHERE client_id = $1 AND movie_id = $2`,
-      [req.clientId, movieId]
+      `SELECT 1 FROM favorites WHERE user_id = $1 AND movie_id = $2`,
+      [req.user.id, movieId]
     );
     return res.json({ inList: result.rows.length > 0 });
   } catch (err) {

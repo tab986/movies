@@ -3,6 +3,7 @@ const express = require("express");
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
 const { ensureSchema } = require("./db");
+const authRoutes = require("./routes/authRoutes");
 const movieRoutes = require("./routes/movieRoutes");
 
 function hasTmdbConfig() {
@@ -18,7 +19,7 @@ const PORT = Number(process.env.PORT) || 5000;
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, DELETE, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Client-Id");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   if (req.method === "OPTIONS") {
     return res.sendStatus(204);
   }
@@ -31,6 +32,7 @@ app.get("/healthz", (_req, res) => {
   res.status(200).json({ status: "ok" });
 });
 
+app.use("/api/auth", authRoutes);
 app.use("/api", movieRoutes);
 
 app.use((err, req, res, next) => {
@@ -67,6 +69,9 @@ async function start() {
       console.error(
         "[startup] Missing TMDB_READ_ACCESS_TOKEN or TMDB_API_KEY — /api/movies will fail until you set one in Coolify Environment."
       );
+    }
+    if (!process.env.JWT_SECRET?.trim()) {
+      console.error("[startup] Missing JWT_SECRET — auth and My List will fail.");
     }
     console.log(`Movies app listening on http://0.0.0.0:${PORT}`);
   });

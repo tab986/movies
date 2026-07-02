@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink, useNavigate, useSearchParams } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 
 export default function Navbar() {
+  const { user, isAuthenticated, logout } = useAuth();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [q, setQ] = useState(searchParams.get("q") || "");
@@ -91,6 +93,41 @@ export default function Navbar() {
             />
           </label>
         </form>
+
+        <div className="hidden items-center gap-3 md:flex">
+          {isAuthenticated ? (
+            <>
+              <span className="max-w-[160px] truncate text-sm text-zinc-400" title={user?.email}>
+                {user?.email}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  logout();
+                  navigate("/");
+                }}
+                className="rounded-full border border-white/10 px-4 py-1.5 text-sm font-medium text-zinc-300 hover:border-white/30 hover:text-white"
+              >
+                Log out
+              </button>
+            </>
+          ) : (
+            <>
+              <Link
+                to="/login"
+                className="rounded-full border border-white/10 px-4 py-1.5 text-sm font-medium text-zinc-300 hover:border-white/30 hover:text-white"
+              >
+                Log in
+              </Link>
+              <Link
+                to="/register"
+                className="rounded-full bg-brand-red px-4 py-1.5 text-sm font-semibold text-white hover:bg-red-600"
+              >
+                Sign up
+              </Link>
+            </>
+          )}
+        </div>
       </div>
 
       <form onSubmit={onSearch} className="border-t border-white/5 px-4 py-2 md:hidden">

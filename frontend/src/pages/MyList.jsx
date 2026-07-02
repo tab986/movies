@@ -32,7 +32,7 @@ export default function MyList() {
   return (
     <div className="min-h-[60vh] px-4 pb-16 md:px-10">
       <h1 className="font-display text-3xl tracking-wide text-white md:text-4xl">My List</h1>
-      <p className="mt-1 text-sm text-zinc-500">Saved in your Postgres database on this device.</p>
+      <p className="mt-1 text-sm text-zinc-500">Your saved movies — linked to your account.</p>
 
       <div className="mt-10 flex flex-wrap gap-4">
         {loading &&

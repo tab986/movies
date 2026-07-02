@@ -1,5 +1,5 @@
 import axios from "axios";
-import { getClientId } from "../lib/clientId";
+import { clearAuthStorage, getStoredToken, setAuthStorage } from "../lib/authStorage";
 
 const baseURL = import.meta.env.VITE_API_URL || "/api";
 
@@ -9,9 +9,28 @@ const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
-  config.headers["X-Client-Id"] = getClientId();
+  const token = getStoredToken();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
   return config;
 });
+
+export async function register(email, password) {
+  const { data } = await api.post("/auth/register", { email, password });
+  setAuthStorage(data.token, data.user);
+  return data;
+}
+
+export async function login(email, password) {
+  const { data } = await api.post("/auth/login", { email, password });
+  setAuthStorage(data.token, data.user);
+  return data;
+}
+
+export function logoutApi() {
+  clearAuthStorage();
+}
 
 export async function fetchMovies(params) {
   const { data } = await api.get("/movies", { params });

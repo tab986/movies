@@ -1,6 +1,6 @@
 # Deploy Movies on Coolify
 
-Builds from the root **Dockerfile** (frontend + backend in one container). **No database** required.
+Builds from the root **Dockerfile** (frontend + backend in one container).
 
 ## 1. Create the service
 
@@ -15,7 +15,8 @@ Builds from the root **Dockerfile** (frontend + backend in one container). **No 
 |----------|--------|
 | `PORT` | `5000` |
 | `NODE_ENV` | `production` |
-| `DATABASE_URL` | `postgresql://postgres:Postgres%402026%21Pass@<postgres-host>:5432/movies` |
+| `DATABASE_URL` | Your Coolify Postgres connection string |
+| `JWT_SECRET` | Long random string for auth tokens |
 | `TMDB_READ_ACCESS_TOKEN` | Your TMDB read token |
 | `TMDB_API_KEY` | Your TMDB API key (optional if token set) |
 
@@ -30,6 +31,8 @@ Do not commit `.env` to git.
 
 ## 4. After deploy
 
-Open your Coolify URL — you should see the Movies home page. My List works in the browser without login.
+1. Open your Coolify URL — Movies home page with login/sign up in the navbar.
+2. **Sign up** creates a user in Postgres.
+3. **My List** requires login; favorites are stored per user in the database.
 
-If movies fail to load, check `TMDB_*` env vars and redeploy.
+If movies fail to load, check `TMDB_*` env vars. If login fails, check `DATABASE_URL` and `JWT_SECRET`.
