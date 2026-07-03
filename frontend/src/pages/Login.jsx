@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
+import ClosingPlasma from "../components/ClosingPlasma";
 import { useAuth } from "../context/AuthContext";
 
 export default function Login() {
@@ -34,8 +35,22 @@ export default function Login() {
   };
 
   return (
-    <div className="flex min-h-[70vh] items-center justify-center px-4 py-12">
-      <div className="w-full max-w-md rounded-2xl border border-white/10 bg-zinc-900/80 p-8 shadow-2xl backdrop-blur">
+    <>
+      <ClosingPlasma
+        className="fixed inset-0 z-0"
+        themeMode="dark"
+        darkColorA="#0a0a0b"
+        darkColorB="#141414"
+        darkColorC="#3d1a24"
+        speed={0.9}
+        turbulence={1}
+        mouseInfluence={0.8}
+        grain={0.6}
+        sparkle={0.7}
+        vignette={0.9}
+      />
+      <div className="relative z-10 flex min-h-[70vh] items-center justify-center px-4 py-12">
+        <div className="w-full max-w-md rounded-2xl border border-white/10 bg-zinc-900/80 p-8 shadow-2xl backdrop-blur">
         <h1 className="font-display text-4xl tracking-wide text-white">Log in</h1>
         <p className="mt-1 text-sm text-zinc-500">Use your Tab account</p>
 
@@ -83,7 +98,8 @@ export default function Login() {
             Create an account
           </Link>
         </p>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
