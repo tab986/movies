@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
+import ClosingPlasma from "../components/ClosingPlasma";
 import { useAuth } from "../context/AuthContext";
 
 export default function Register() {
@@ -32,8 +33,22 @@ export default function Register() {
   };
 
   return (
-    <div className="flex min-h-[70vh] items-center justify-center px-4 py-12">
-      <div className="w-full max-w-md rounded-2xl border border-white/10 bg-zinc-900/80 p-8 shadow-2xl backdrop-blur">
+    <>
+      <ClosingPlasma
+        className="pointer-events-none fixed inset-0 z-0 h-screen w-screen"
+        themeMode="dark"
+        darkColorA="#0a0a0b"
+        darkColorB="#2d1219"
+        darkColorC="#e50914"
+        speed={1.1}
+        turbulence={1.35}
+        mouseInfluence={1}
+        grain={0.75}
+        sparkle={1.1}
+        vignette={0.85}
+      />
+      <div className="relative z-10 flex min-h-screen items-center justify-center px-4 py-12 pt-[120px] md:pt-[88px]">
+        <div className="w-full max-w-md rounded-2xl border border-white/10 bg-zinc-900/80 p-8 shadow-2xl backdrop-blur">
         <h1 className="font-display text-4xl tracking-wide text-white">Sign up</h1>
         <p className="mt-1 text-sm text-zinc-500">Email and password</p>
 
@@ -83,7 +98,8 @@ export default function Register() {
             Log in
           </Link>
         </p>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

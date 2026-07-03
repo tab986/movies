@@ -37,7 +37,7 @@ export default function Login() {
   return (
     <>
       <ClosingPlasma
-        className="pointer-events-none fixed inset-0 z-[1]"
+        className="pointer-events-none fixed inset-0 z-0 h-screen w-screen"
         themeMode="dark"
         darkColorA="#0a0a0b"
         darkColorB="#2d1219"
@@ -49,7 +49,7 @@ export default function Login() {
         sparkle={1.1}
         vignette={0.85}
       />
-      <div className="relative z-10 flex min-h-[calc(100dvh-120px)] items-center justify-center px-4 py-12 md:min-h-[calc(100dvh-88px)]">
+      <div className="relative z-10 flex min-h-screen items-center justify-center px-4 py-12 pt-[120px] md:pt-[88px]">
         <div className="w-full max-w-md rounded-2xl border border-white/10 bg-zinc-900/80 p-8 shadow-2xl backdrop-blur">
         <h1 className="font-display text-4xl tracking-wide text-white">Log in</h1>
         <p className="mt-1 text-sm text-zinc-500">Use your Tab account</p>

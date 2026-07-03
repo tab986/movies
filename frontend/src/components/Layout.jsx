@@ -8,7 +8,7 @@ export default function Layout() {
   return (
     <div className={`min-h-screen ${isAuthPage ? "bg-transparent" : "bg-brand-dark"}`}>
       <Navbar />
-      <main className="pt-[120px] md:pt-[88px]">
+      <main className={`relative ${isAuthPage ? "" : "pt-[120px] md:pt-[88px]"}`}>
         <Outlet />
       </main>
       {!isAuthPage && (

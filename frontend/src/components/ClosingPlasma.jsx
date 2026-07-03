@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "../lib/utils";
 
 const VERTEX_SHADER = `
@@ -149,6 +150,7 @@ export function ClosingPlasma({
   vignette = 1,
   opacity = 1,
   interactive = true,
+  portal = false,
   darkColorA = DARK_A,
   darkColorB = DARK_B,
   darkColorC = DARK_C,
@@ -164,6 +166,7 @@ export function ClosingPlasma({
   const mouseRef = useRef({ x: 0.5, y: 0.5 });
   const targetMouseRef = useRef({ x: 0.5, y: 0.5 });
   const isDarkRef = useRef(0);
+  const [webglFailed, setWebglFailed] = useState(false);
 
   const settings = useMemo(
     () => ({
@@ -253,8 +256,14 @@ export function ClosingPlasma({
     container.addEventListener("pointermove", handlePointerMove);
     container.addEventListener("pointerleave", handlePointerLeave);
 
-    const gl = canvas.getContext("webgl", { antialias: false, alpha: true });
+    const gl = canvas.getContext("webgl", {
+      antialias: false,
+      alpha: true,
+      premultipliedAlpha: false,
+    });
     if (!gl) {
+      setWebglFailed(true);
+      console.error("[ClosingPlasma] WebGL is not available.");
       return () => {
         container.removeEventListener("pointermove", handlePointerMove);
         container.removeEventListener("pointerleave", handlePointerLeave);
@@ -269,6 +278,8 @@ export function ClosingPlasma({
       gl.shaderSource(shader, source);
       gl.compileShader(shader);
       if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        const info = gl.getShaderInfoLog(shader);
+        console.error("[ClosingPlasma] Shader compile error:", info);
         gl.deleteShader(shader);
         return null;
       }
@@ -278,6 +289,7 @@ export function ClosingPlasma({
     const vertexShader = compileShader(gl.VERTEX_SHADER, VERTEX_SHADER);
     const fragmentShader = compileShader(gl.FRAGMENT_SHADER, FRAGMENT_SHADER);
     if (!vertexShader || !fragmentShader) {
+      setWebglFailed(true);
       return () => {
         container.removeEventListener("pointermove", handlePointerMove);
         container.removeEventListener("pointerleave", handlePointerLeave);
@@ -298,6 +310,8 @@ export function ClosingPlasma({
     gl.attachShader(program, fragmentShader);
     gl.linkProgram(program);
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      console.error("[ClosingPlasma] Program link error:", gl.getProgramInfoLog(program));
+      setWebglFailed(true);
       gl.deleteProgram(program);
       gl.deleteShader(vertexShader);
       gl.deleteShader(fragmentShader);
@@ -369,7 +383,9 @@ export function ClosingPlasma({
 
     const resize = () => {
       const dpr = Math.min(window.devicePixelRatio || 1, 1.75);
-      const { width, height } = container.getBoundingClientRect();
+      const rect = container.getBoundingClientRect();
+      const width = Math.max(rect.width, window.innerWidth);
+      const height = Math.max(rect.height, window.innerHeight);
       canvas.width = Math.max(1, Math.floor(width * dpr));
       canvas.height = Math.max(1, Math.floor(height * dpr));
       gl.viewport(0, 0, canvas.width, canvas.height);
@@ -433,21 +449,32 @@ export function ClosingPlasma({
     };
   }, [settings]);
 
-  return (
+  const content = (
     <div
       ref={containerRef}
-      className={cn("relative h-full w-full overflow-hidden", className)}
+      className={cn("overflow-hidden", className)}
       style={style}
     >
+      {webglFailed && (
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 bg-gradient-to-br from-[#0a0a0b] via-[#2d1219] to-[#e50914]/40"
+        />
+      )}
       <canvas
         ref={canvasRef}
         aria-hidden="true"
-        className="absolute inset-0 h-full w-full"
-        style={{ width: "100%", height: "100%", display: "block" }}
+        className="absolute inset-0 block h-full w-full"
       />
       {children && <div className="relative z-10 h-full w-full">{children}</div>}
     </div>
   );
+
+  if (portal && typeof document !== "undefined") {
+    return createPortal(content, document.body);
+  }
+
+  return content;
 }
 
 export default ClosingPlasma;
