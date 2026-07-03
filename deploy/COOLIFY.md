@@ -22,6 +22,8 @@ Builds from the root **Dockerfile** (frontend + backend in one container).
 
 Do not commit `.env` to git.
 
+**Manual DB setup (pgAdmin):** run [`deploy/schema.sql`](schema.sql), then [`deploy/verify.sql`](verify.sql) to confirm tables. Or run `node scripts/apply-schema.js` locally when `DATABASE_URL` is set.
+
 ## 3. Health check
 
 | Setting | Value |
