@@ -1,13 +1,17 @@
-import { Outlet } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
 import Navbar from "./Navbar";
 
 export default function Layout() {
+  const { pathname } = useLocation();
+  const isAuthPage = pathname === "/login" || pathname === "/register";
+
   return (
-    <div className="min-h-screen bg-brand-dark">
+    <div className={`min-h-screen ${isAuthPage ? "bg-transparent" : "bg-brand-dark"}`}>
       <Navbar />
       <main className="pt-[120px] md:pt-[88px]">
         <Outlet />
       </main>
+      {!isAuthPage && (
       <footer className="border-t border-white/10 bg-black/40 px-4 py-12 md:px-10">
         <div className="mx-auto grid max-w-5xl gap-8 sm:grid-cols-3">
           <div>
@@ -58,6 +62,7 @@ export default function Layout() {
         </div>
         <p className="mt-10 text-center text-xs text-zinc-600">© {new Date().getFullYear()} Tab — demo app</p>
       </footer>
+      )}
     </div>
   );
 }

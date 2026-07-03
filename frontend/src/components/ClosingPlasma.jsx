@@ -377,8 +377,10 @@ export function ClosingPlasma({
     };
 
     resize();
+    requestAnimationFrame(resize);
     const resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(container);
+    window.addEventListener("resize", resize);
 
     const darkA = hexToRgb01(settings.darkColorA, DARK_A);
     const darkB = hexToRgb01(settings.darkColorB, DARK_B);
@@ -423,6 +425,7 @@ export function ClosingPlasma({
       container.removeEventListener("pointerleave", handlePointerLeave);
       cancelAnimationFrame(rafId);
       resizeObserver.disconnect();
+      window.removeEventListener("resize", resize);
       gl.deleteBuffer(buffer);
       gl.deleteProgram(program);
       gl.deleteShader(vertexShader);
